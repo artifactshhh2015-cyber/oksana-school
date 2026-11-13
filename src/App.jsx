@@ -1,5 +1,6 @@
 
-import { useEffect, useMemo, useState } from "react";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { auth, db } from "./firebase";
 import {
@@ -17,24 +18,15 @@ import {
   query,
   where,
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  updateDoc
 } from "firebase/firestore";
 import "./App.css";
 
 const STORAGE_KEY = "ocs_data";
-const SESSION_KEY = "ocs_session";
 
 const initialData = {
-  users: [
-    {
-      id: 1,
-      username: "admin",
-      password: "admin12345",
-      name: "Abdulhodiy",
-      role: "admin",
-      status: "approved",
-    },
-  ],
+  users: [],
   students: [],
   rooms: [],
   attendance: [],
@@ -70,12 +62,7 @@ function loadData() {
     return {
       ...initialData,
       ...parsed,
-      users: [
-        ...initialData.users,
-        ...(parsed.users || []).filter(
-          (user) => user.username !== "admin"
-        ),
-      ],
+      users: parsed.users || [],
     };
   } catch {
     return initialData;
@@ -118,13 +105,80 @@ function Field({ label, children }) {
 
 export default function App() {
   const [data, setData] = useState(loadData);
-  const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(SESSION_KEY)) || null;
-    } catch {
-      return null;
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const registrationInProgress = useRef(false);
+
+  // Firebase Auth is the source of truth for the current session.
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // Registration temporarily signs in the new account; do not treat it as a login.
+      if (registrationInProgress.current) return;
+
+      if (!firebaseUser) {
+        setUser(null);
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        const profileSnapshot = await getDoc(doc(db, "users", firebaseUser.uid));
+
+        if (!profileSnapshot.exists()) {
+          setUser(null);
+          await signOut(auth);
+          return;
+        }
+
+        const profile = profileSnapshot.data();
+        if (profile.status !== "approved") {
+          setUser(null);
+          await signOut(auth);
+          return;
+        }
+
+        setUser({ id: firebaseUser.uid, ...profile });
+      } catch (error) {
+        console.error("Sessiyani tekshirishda xatolik:", error);
+        setUser(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+useEffect(() => {
+  if (!user || user.role !== "admin") {
+    return;
+  }
+
+  const unsubscribe = onSnapshot(
+    collection(db, "users"),
+    (snapshot) => {
+      const users = snapshot.docs.map((item) => ({
+        id: item.id,
+        ...item.data(),
+      }));
+
+      console.log("Firebase foydalanuvchilari:", users);
+      console.log("Jami foydalanuvchilar:", users.length);
+      console.log("Pending foydalanuvchilar:", users.filter(u => u.status === "pending")); 
+
+      setData((old) => ({
+        ...old,
+        users,
+      }));
+    },
+    (error) => {
+      console.error("Firebase xatosi:", error);
+      notify("Firebase xatosi: " + error.message);
     }
-  });
+  );
+
+  return () => unsubscribe();
+}, [user?.id, user?.role]);
 
   const [activePage, setActivePage] = useState("dashboard");
   const [authMode, setAuthMode] = useState("login");
@@ -186,14 +240,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
-
-  useEffect(() => {
-    if (user) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    } else {
-      localStorage.removeItem(SESSION_KEY);
-    }
-  }, [user]);
 
   const notify = (message) => {
     setToast(message);
@@ -288,6 +334,11 @@ export default function App() {
     return;
   }
 
+  if (!/^[a-z0-9._-]{3,24}$/.test(username)) {
+    notify("Login 3–24 belgi bo‘lsin: lotin harflari, raqam, nuqta, _ yoki -.");
+    return;
+  }
+
   if (password.length < 6) {
     notify("Parol kamida 6 ta belgidan iborat bo‘lsin.");
     return;
@@ -308,6 +359,7 @@ export default function App() {
       return;
     }
 
+    registrationInProgress.current = true;
     const result = await createUserWithEmailAndPassword(
       auth,
       email,
@@ -327,6 +379,7 @@ export default function App() {
     });
 
     await signOut(auth);
+    registrationInProgress.current = false;
 
     setRegisterForm({
       name: "",
@@ -339,16 +392,31 @@ export default function App() {
     notify("Ro‘yxatdan o‘tdingiz. Admin tasdig‘ini kuting.");
   } catch (error) {
     console.error(error);
+    if (auth.currentUser) {
+      try {
+        await signOut(auth);
+      } catch (signOutError) {
+        console.error("Ro‘yxatdan chiqish xatosi:", signOutError);
+      }
+    }
+    registrationInProgress.current = false;
     notify("Xatolik: " + error.message);
   }
 }
 
 
 
-  function logout() {
-    setUser(null);
-    setActivePage("dashboard");
-    setLoginForm({ username: "", password: "" });
+  async function logout() {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setActivePage("dashboard");
+      setLoginForm({ username: "", password: "" });
+      notify("Tizimdan chiqdingiz.");
+    } catch (error) {
+      console.error(error);
+      notify("Tizimdan chiqishda xatolik: " + error.message);
+    }
   }
 
   function addStudent(event) {
@@ -612,24 +680,40 @@ export default function App() {
     notify("Xabar saqlandi!");
   }
 
-  function approveUser(id) {
-    update(
-      "users",
-      data.users.map((item) =>
-        item.id === id ? { ...item, status: "approved" } : item
-      )
-    );
+  async function approveUser(id) {
+    if (!isAdmin) {
+      notify("Bu amal faqat administrator uchun.");
+      return;
+    }
 
-    notify("Foydalanuvchi tasdiqlandi!");
+    try {
+      await updateDoc(doc(db, "users", String(id)), {
+        status: "approved",
+        approvedAt: serverTimestamp(),
+      });
+      notify("Foydalanuvchi tasdiqlandi!");
+    } catch (error) {
+      console.error("Tasdiqlash xatosi:", error);
+      notify("Tasdiqlash amalga oshmadi: " + error.message);
+    }
   }
 
-  function rejectUser(id) {
-    update(
-      "users",
-      data.users.filter((item) => item.id !== id)
-    );
+  async function rejectUser(id) {
+    if (!isAdmin) {
+      notify("Bu amal faqat administrator uchun.");
+      return;
+    }
 
-    notify("So‘rov rad etildi.");
+    try {
+      await updateDoc(doc(db, "users", String(id)), {
+        status: "rejected",
+        rejectedAt: serverTimestamp(),
+      });
+      notify("So‘rov rad etildi.");
+    } catch (error) {
+      console.error("Rad etish xatosi:", error);
+      notify("So‘rovni rad etib bo‘lmadi: " + error.message);
+    }
   }
 
   function deleteRecord(key, id) {
@@ -671,6 +755,18 @@ export default function App() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Oquvchilar");
     XLSX.writeFile(workbook, "Oquvchilar_namuna.xlsx");
+  }
+
+  if (authLoading) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-logo">🎓</div>
+          <h1>Oksana Chusovitina maktabi</h1>
+          <p>Hisob tekshirilmoqda...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!user) {
@@ -803,7 +899,6 @@ export default function App() {
           <span className="auth-note">
             Faqat administrator tasdiqlagan hisoblar tizimga kira oladi.
             <br />
-            Demo administrator: admin / admin12345
           </span>
         </div>
 
@@ -1175,9 +1270,8 @@ export default function App() {
                   }
                 >
                   <option value="">Belgilanmagan</option>
-                  <option value="Keldi">Keldi</option>
-                  <option value="Kelmadi">Kelmadi</option>
-                  <option value="Sababli">Sababli</option>
+                  <option value="Kelgan">Kelgan</option>
+                  <option value="Ketgan">Ketgan</option>
                 </select>
               </div>
             );
@@ -1521,11 +1615,11 @@ export default function App() {
 
   function renderReports() {
     const present = data.attendance.filter(
-      (item) => item.status === "Keldi"
+      (item) => item.status === "Kelgan"
     ).length;
 
     const absent = data.attendance.filter(
-      (item) => item.status === "Kelmadi"
+      (item) => item.status === "Ketgan"
     ).length;
 
     return (
@@ -1538,7 +1632,7 @@ export default function App() {
         <p>Xodimlar: {workers.length}</p>
         <p>Belgilangan davomat yozuvlari: {data.attendance.length}</p>
         <p>Kelganlar yozuvlari: {present}</p>
-        <p>Kelmaganlar yozuvlari: {absent}</p>
+        <p>Ketganlar yozuvlari: {absent}</p>
         <p>To‘garaklar: {data.clubs.length}</p>
         <p>Sport natijalari: {data.sports.length}</p>
         <p>Nominatsiyalar: {data.nominations.length}</p>
