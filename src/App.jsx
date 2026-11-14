@@ -1136,106 +1136,151 @@ useEffect(() => {
     );
   }
 
-  function renderRooms() {
-    return (
-      <>
-        <div className="panel">
-          <h2>Yangi xona yaratish</h2>
+  
+function renderRooms() {
+  return (
+    <>
+      <div className="panel">
+        <h2>Yangi xona yaratish</h2>
 
-          <form className="record-form" onSubmit={addRoom}>
-            <div className="form-grid">
-              <Field label="Xona nomi yoki raqami">
-                <input
-                  required
-                  value={roomForm.name}
-                  onChange={(e) =>
-                    setRoomForm({ ...roomForm, name: e.target.value })
-                  }
-                  placeholder="Masalan: 101"
-                />
-              </Field>
+        <form className="record-form" onSubmit={addRoom}>
+          <div className="form-grid">
+            <Field label="Xona nomi yoki raqami">
+              <input
+                required
+                value={roomForm.name}
+                onChange={(e) =>
+                  setRoomForm({ ...roomForm, name: e.target.value })
+                }
+                placeholder="Masalan: 101"
+              />
+            </Field>
 
-              <Field label="Xona sig‘imi">
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  value={roomForm.capacity}
-                  onChange={(e) =>
-                    setRoomForm({ ...roomForm, capacity: e.target.value })
-                  }
-                  placeholder="Masalan: 4"
-                />
-              </Field>
-            </div>
+            <Field label="Xona sig‘imi">
+              <input
+                required
+                type="number"
+                min="1"
+                value={roomForm.capacity}
+                onChange={(e) =>
+                  setRoomForm({ ...roomForm, capacity: e.target.value })
+                }
+                placeholder="Masalan: 4"
+              />
+            </Field>
+          </div>
 
-            <button className="primary-button" type="submit">
-              + Xona yaratish
-            </button>
-          </form>
-        </div>
+          <button className="primary-button" type="submit">
+            + Xona yaratish
+          </button>
+        </form>
+      </div>
 
-        <div className="panel">
-          <h2>Xonalar ro‘yxati</h2>
+      <div className="panel">
+        <h2>O‘quvchilarni xonalarga joylashtirish</h2>
 
-          {data.rooms.length ? (
-            <Table headers={["Xona", "Sig‘imi", "O‘quvchilar", "Bo‘sh joy"]}>
-              {data.rooms.map((room) => {
-                const count = data.students.filter(
-                  (student) => student.room === room.name
-                ).length;
+        {data.rooms.length ? (
+          <div className="room-groups">
+            {data.rooms.map((room) => {
+              const students = data.students.filter(
+                (student) => student.room === room.name
+              );
 
-                return (
-                  <tr key={room.id}>
-                    <td>{room.name}</td>
-                    <td>{room.capacity}</td>
-                    <td>{count}</td>
-                    <td>{Math.max(0, room.capacity - count)}</td>
-                    <td>
-                      <button
-                        className="delete-button"
-                        onClick={() => deleteRecord("rooms", room.id)}
-                      >
-                        O‘chirish
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </Table>
-          ) : (
-            <Empty>Hali xonalar yaratilmagan.</Empty>
-          )}
-        </div>
+              return (
+                <div className="room-group" key={room.id}>
+                  <div className="room-group-header">
+                    <div>
+                      <h3>{room.name}</h3>
+                      <span>
+                        {students.length} / {room.capacity} nafar o‘quvchi
+                      </span>
+                    </div>
 
-        <div className="panel">
-          <h2>O‘quvchini xonaga joylashtirish</h2>
+                    <button
+                      className="delete-button"
+                      onClick={() => deleteRecord("rooms", room.id)}
+                    >
+                      O‘chirish
+                    </button>
+                  </div>
 
-          {data.students.length && data.rooms.length ? (
-            data.students.map((student) => (
-              <div className="attendance-row" key={student.id}>
-                <strong>{student.name}</strong>
+                  {students.length ? (
+                    <div className="room-students">
+                      {students.map((student, index) => (
+                        <div className="room-student" key={student.id}>
+                          <span className="room-student-number">
+                            {index + 1}
+                          </span>
+                          <strong>{student.name}</strong>
 
-                <select
-                  value={student.room || ""}
-                  onChange={(e) => assignRoom(student.id, e.target.value)}
-                >
-                  <option value="">Xona tanlang</option>
-                  {data.rooms.map((room) => (
-                    <option key={room.id} value={room.name}>
-                      {room.name}
-                    </option>
-                  ))}
-                </select>
+                          <select
+                            value={student.room || ""}
+                            onChange={(e) =>
+                              assignRoom(student.id, e.target.value)
+                            }
+                          >
+                            <option value="">Xona tanlang</option>
+                            {data.rooms.map((r) => (
+                              <option key={r.id} value={r.name}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Empty>Bu xonaga hali o‘quvchi joylashtirilmagan.</Empty>
+                  )}
+                </div>
+              );
+            })}
+
+            {data.students.filter((student) => !student.room).length > 0 && (
+              <div className="room-group">
+                <div className="room-group-header">
+                  <h3>Joylashtirilmagan o‘quvchilar</h3>
+                  <span>
+                    {data.students.filter((s) => !s.room).length} nafar
+                  </span>
+                </div>
+
+                <div className="room-students">
+                  {data.students
+                    .filter((student) => !student.room)
+                    .map((student, index) => (
+                      <div className="room-student" key={student.id}>
+                        <span className="room-student-number">
+                          {index + 1}
+                        </span>
+                        <strong>{student.name}</strong>
+
+                        <select
+                          value=""
+                          onChange={(e) =>
+                            assignRoom(student.id, e.target.value)
+                          }
+                        >
+                          <option value="">Xona tanlang</option>
+                          {data.rooms.map((r) => (
+                            <option key={r.id} value={r.name}>
+                              {r.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                </div>
               </div>
-            ))
-          ) : (
-            <Empty>Avval o‘quvchi va xona qo‘shing.</Empty>
-          )}
-        </div>
-      </>
-    );
-  }
+            )}
+          </div>
+        ) : (
+          <Empty>Avval xona yarating.</Empty>
+        )}
+      </div>
+    </>
+  );
+}
 
   function renderAttendance() {
     return (
