@@ -1,0 +1,1132 @@
+
+import { useEffect, useState } from "react";
+import * as XLSX from "xlsx";
+import { auth, db } from "./firebase";
+
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged
+} from "firebase/auth";
+
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  onSnapshot,
+  orderBy,
+  serverTimestamp
+} from "firebase/firestore";
+
+import "./App.css";
+
+const ROLES = {
+  admin: "Administrator",
+  deputy_director: "Direktor o‘rinbosari",
+  caregiver: "Tarbiyachi",
+  worker: "Tarbiyachi",
+  parent: "Ota-ona"
+};
+
+const EMAIL_DOMAIN = "@oksana-school.test";
+
+function makeEmail(username) {
+  return username.trim().toLowerCase() + EMAIL_DOMAIN;
+}
+
+function normalizeRole(role) {
+  return role === "worker" ? "caregiver" : role;
+}
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [page, setPage] = useState("home");
+  const [authMode, setAuthMode] = useState("login");
+
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [registerRole, setRegisterRole] = useState("parent");
+  const [authError, setAuthError] = useState("");
+
+  const [students, setStudents] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [attendance, setAttendance] = useState([]);
+  const [conversations, setConversations] = useState([]);
+
+  const [studentName, setStudentName] = useState("");
+  const [studentParent, setStudentParent] = useState("");
+  const [studentBirth, setStudentBirth] = useState("");
+  const [studentGender, setStudentGender] = useState("");
+  const [studentGrade, setStudentGrade] = useState("");
+  const [studentRoom, setStudentRoom] = useState("");
+  const [studentParentUid, setStudentParentUid] = useState("");
+  const [studentCaregiverUid, setStudentCaregiverUid] = useState("");
+  const [editingStudent, setEditingStudent] = useState(null);
+
+  const [roomName, setRoomName] = useState("");
+  const [roomCapacity, setRoomCapacity] = useState("");
+
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [chatText, setChatText] = useState("");
+  const [chatMessages, setChatMessages] = useState([]);
+
+  const role = normalizeRole(profile?.role);
+  const isAdmin = role === "admin";
+  const isDeputy = role === "deputy_director";
+  const isCaregiver = role === "caregiver";
+  const isParent = role === "parent";
+
+  // Authentication
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+
+      if (!firebaseUser) {
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const profileSnap = await getDoc(
+          doc(db, "users", firebaseUser.uid)
+        );
+
+        if (!profileSnap.exists()) {
+          setProfile(null);
+        } else {
+          setProfile({
+            id: firebaseUser.uid,
+            ...profileSnap.data()
+          });
+        }
+      } catch (error) {
+        console.error(error);
+        setProfile(null);
+      }
+
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Load data according to role
+  useEffect(() => {
+    if (!user || !profile || profile.status !== "approved") return;
+
+    const unsubscribers = [];
+
+    const subscribe = (collectionName, setter, constraints = []) => {
+      const q = query(collection(db, collectionName), ...constraints);
+
+      const unsub = onSnapshot(
+        q,
+        (snapshot) => {
+          setter(
+            snapshot.docs.map((item) => ({
+              id: item.id,
+              ...item.data()
+            }))
+          );
+        },
+        (error) => console.error(collectionName, error)
+      );
+
+      unsubscribers.push(unsub);
+    };
+
+    if (isAdmin || isDeputy) {
+      subscribe("students", setStudents);
+      subscribe("rooms", setRooms);
+      subscribe("attendance", setAttendance);
+      subscribe("users", setUsers);
+    } else if (isCaregiver) {
+      subscribe(
+        "students",
+        setStudents,
+        [where("caregiverUid", "==", user.uid)]
+      );
+      subscribe("rooms", setRooms);
+      subscribe(
+        "attendance",
+        setAttendance
+      );
+    } else if (isParent) {
+      subscribe(
+        "students",
+        setStudents,
+        [where("parentUid", "==", user.uid)]
+      );
+      subscribe("attendance", setAttendance);
+    }
+
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [user, profile, isAdmin, isDeputy, isCaregiver, isParent]);
+
+  // Conversations
+  useEffect(() => {
+    if (!user || !profile || profile.status !== "approved") return;
+
+    const q = query(
+      collection(db, "conversations"),
+      where("members", "array-contains", user.uid)
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      setConversations(
+        snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data()
+        }))
+      );
+    }, console.error);
+  }, [user, profile]);
+
+  // Chat messages
+  useEffect(() => {
+    if (!selectedConversation) {
+      setChatMessages([]);
+      return;
+    }
+
+    const q = query(
+      collection(
+        db,
+        "conversations",
+        selectedConversation.id,
+        "messages"
+      ),
+      orderBy("createdAt", "asc")
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      setChatMessages(
+        snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data()
+        }))
+      );
+    }, console.error);
+  }, [selectedConversation]);
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    setAuthError("");
+
+    try {
+      await signInWithEmailAndPassword(
+        auth,
+        makeEmail(username),
+        password
+      );
+    } catch (error) {
+      setAuthError("Login yoki parol noto‘g‘ri.");
+    }
+  }
+
+  async function handleRegister(event) {
+    event.preventDefault();
+    setAuthError("");
+
+    if (!username.trim() || !password || !fullName.trim()) {
+      setAuthError("Barcha maydonlarni to‘ldiring.");
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9._-]+$/.test(username.trim())) {
+      setAuthError("Login faqat lotin harflari va raqamlardan iborat bo‘lsin.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setAuthError("Parol kamida 6 ta belgidan iborat bo‘lsin.");
+      return;
+    }
+
+    try {
+      const usernameRef = doc(
+        db,
+        "usernames",
+        username.trim().toLowerCase()
+      );
+
+      const existing = await getDoc(usernameRef);
+
+      if (existing.exists()) {
+        setAuthError("Bu login band.");
+        return;
+      }
+
+      const credential = await createUserWithEmailAndPassword(
+        auth,
+        makeEmail(username),
+        password
+      );
+
+      const newProfile = {
+        name: fullName.trim(),
+        username: username.trim().toLowerCase(),
+        role: registerRole,
+        status: "pending",
+        createdAt: serverTimestamp()
+      };
+
+      await setDoc(
+        doc(db, "users", credential.user.uid),
+        newProfile
+      );
+
+      await setDoc(usernameRef, {
+        uid: credential.user.uid
+      });
+
+      await signOut(auth);
+      setAuthMode("login");
+      setAuthError("Ro‘yxatdan o‘tdingiz. Admin tasdig‘ini kuting.");
+    } catch (error) {
+      console.error(error);
+      setAuthError("Ro‘yxatdan o‘tishda xatolik: " + error.message);
+    }
+  }
+
+  async function logout() {
+    await signOut(auth);
+    setPage("home");
+  }
+
+  async function approveUser(uid) {
+    if (!isAdmin) return;
+
+    await updateDoc(doc(db, "users", uid), {
+      status: "approved"
+    });
+  }
+
+  async function rejectUser(uid) {
+    if (!isAdmin) return;
+
+    await updateDoc(doc(db, "users", uid), {
+      status: "rejected"
+    });
+  }
+
+  function clearStudentForm() {
+    setStudentName("");
+    setStudentParent("");
+    setStudentBirth("");
+    setStudentGender("");
+    setStudentGrade("");
+    setStudentRoom("");
+    setStudentParentUid("");
+    setStudentCaregiverUid("");
+    setEditingStudent(null);
+  }
+
+  async function saveStudent(event) {
+    event.preventDefault();
+
+    if (!isAdmin && !isDeputy) return;
+    if (!studentName.trim()) {
+      alert("O‘quvchi F.I.O. sini kiriting.");
+      return;
+    }
+
+    const data = {
+      name: studentName.trim(),
+      parent: studentParent.trim(),
+      birth: studentBirth,
+      gender: studentGender,
+      grade: studentGrade.trim(),
+      room: studentRoom.trim(),
+      parentUid: studentParentUid || null,
+      caregiverUid: studentCaregiverUid || null,
+      updatedAt: serverTimestamp()
+    };
+
+    try {
+      if (editingStudent) {
+        await updateDoc(
+          doc(db, "students", editingStudent),
+          data
+        );
+      } else {
+        await addDoc(collection(db, "students"), {
+          ...data,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      clearStudentForm();
+    } catch (error) {
+      alert("Saqlashda xatolik: " + error.message);
+    }
+  }
+
+  function editStudent(student) {
+    setEditingStudent(student.id);
+    setStudentName(student.name || "");
+    setStudentParent(student.parent || "");
+    setStudentBirth(student.birth || "");
+    setStudentGender(student.gender || "");
+    setStudentGrade(student.grade || "");
+    setStudentRoom(student.room || "");
+    setStudentParentUid(student.parentUid || "");
+    setStudentCaregiverUid(student.caregiverUid || "");
+    setPage("students");
+  }
+
+  async function removeStudent(id) {
+    if (!isAdmin) return;
+    if (!confirm("O‘quvchini o‘chirmoqchimisiz?")) return;
+
+    await deleteDoc(doc(db, "students", id));
+  }
+
+  async function importStudents(event) {
+    if (!isAdmin && !isDeputy) return;
+
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), {
+        type: "array"
+      });
+
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {
+        defval: ""
+      });
+
+      if (!rows.length) {
+        alert("Excel faylida ma’lumot topilmadi.");
+        return;
+      }
+
+      const getValue = (row, names) => {
+        const key = Object.keys(row).find((k) =>
+          names.includes(k.trim().toLowerCase())
+        );
+        return key ? String(row[key]).trim() : "";
+      };
+
+      for (const row of rows) {
+        const name = getValue(row, [
+          "f.i.o", "fio", "ism familiya", "name"
+        ]);
+
+        if (!name) continue;
+
+        await addDoc(collection(db, "students"), {
+          name,
+          parent: getValue(row, ["ota-ona", "ota ona", "parent"]),
+          birth: getValue(row, ["tugilgan sana", "tug‘ilgan sana", "birth"]),
+          gender: getValue(row, ["jins", "gender"]),
+          grade: getValue(row, ["sinf", "class", "grade"]),
+          room: getValue(row, ["xona", "room"]),
+          parentUid: null,
+          caregiverUid: null,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      alert("Excel ma’lumotlari yuklandi.");
+    } catch (error) {
+      alert("Excel xatosi: " + error.message);
+    }
+
+    event.target.value = "";
+  }
+
+  async function saveRoom(event) {
+    event.preventDefault();
+
+    if (!isAdmin && !isDeputy) return;
+    if (!roomName.trim()) return;
+
+    await addDoc(collection(db, "rooms"), {
+      name: roomName.trim(),
+      capacity: Number(roomCapacity) || 0,
+      createdAt: serverTimestamp()
+    });
+
+    setRoomName("");
+    setRoomCapacity("");
+  }
+
+  async function removeRoom(id) {
+    if (!isAdmin) return;
+    if (!confirm("Xonani o‘chirmoqchimisiz?")) return;
+
+    await deleteDoc(doc(db, "rooms", id));
+  }
+
+  async function markAttendance(student, status) {
+    if (!isAdmin && !isDeputy && !isCaregiver) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const existing = attendance.find(
+      (item) => item.studentId === student.id && item.date === today
+    );
+
+    const data = {
+      studentId: student.id,
+      studentName: student.name,
+      date: today,
+      status,
+      updatedAt: serverTimestamp()
+    };
+
+    if (existing) {
+      await updateDoc(doc(db, "attendance", existing.id), data);
+    } else {
+      await addDoc(collection(db, "attendance"), {
+        ...data,
+        createdAt: serverTimestamp()
+      });
+    }
+  }
+
+  async function startChat(conversation) {
+    setSelectedConversation(conversation);
+    setPage("chat");
+  }
+
+  async function sendMessage(event) {
+    event.preventDefault();
+
+    if (!selectedConversation || !chatText.trim()) return;
+
+    const conversationRef = doc(
+      db,
+      "conversations",
+      selectedConversation.id
+    );
+
+    await addDoc(
+      collection(
+        db,
+        "conversations",
+        selectedConversation.id,
+        "messages"
+      ),
+      {
+        text: chatText.trim(),
+        senderUid: user.uid,
+        senderName: profile.name,
+        createdAt: serverTimestamp(),
+        readBy: [user.uid]
+      }
+    );
+
+    await updateDoc(conversationRef, {
+      lastMessage: chatText.trim(),
+      lastMessageAt: serverTimestamp()
+    });
+
+    setChatText("");
+  }
+
+  async function createConversation(student) {
+    if (!student.parentUid || !student.caregiverUid) {
+      alert("Avval o‘quvchiga ota-ona va tarbiyachini biriktiring.");
+      return;
+    }
+
+    const members = [
+      student.parentUid,
+      student.caregiverUid
+    ];
+
+    const existing = conversations.find(
+      (conversation) =>
+        conversation.studentId === student.id &&
+        members.every((uid) => conversation.members?.includes(uid))
+    );
+
+    if (existing) {
+      startChat(existing);
+      return;
+    }
+
+    const ref = await addDoc(collection(db, "conversations"), {
+      studentId: student.id,
+      studentName: student.name,
+      members,
+      createdAt: serverTimestamp(),
+      lastMessage: "",
+      lastMessageAt: serverTimestamp()
+    });
+
+    startChat({
+      id: ref.id,
+      studentId: student.id,
+      studentName: student.name,
+      members
+    });
+  }
+
+  const visibleMenu = [
+    { id: "home", label: "Bosh sahifa", roles: ["admin", "deputy_director", "caregiver", "parent"] },
+    { id: "students", label: "O‘quvchilar", roles: ["admin", "deputy_director", "caregiver", "parent"] },
+    { id: "rooms", label: "Xonalar", roles: ["admin", "deputy_director", "caregiver"] },
+    { id: "attendance", label: "Davomat", roles: ["admin", "deputy_director", "caregiver", "parent"] },
+    { id: "users", label: "Foydalanuvchilar", roles: ["admin"] },
+    { id: "chat", label: "Xabarlar", roles: ["admin", "deputy_director", "caregiver", "parent"] }
+  ].filter((item) => item.roles.includes(role));
+
+  if (loading) {
+    return <main className="app-loading">Yuklanmoqda...</main>;
+  }
+
+  if (!user) {
+    return (
+      <main className="auth-page">
+        <form
+          className="auth-card"
+          onSubmit={authMode === "login" ? handleLogin : handleRegister}
+        >
+          <h1>Oksana Chusovitina maktabi</h1>
+          <p>Yotoqxona boshqaruv tizimi</p>
+
+          <div className="auth-tabs">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode("login");
+                setAuthError("");
+              }}
+            >
+              Kirish
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode("register");
+                setAuthError("");
+              }}
+            >
+              Ro‘yxatdan o‘tish
+            </button>
+          </div>
+
+          {authMode === "register" && (
+            <>
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="F.I.O."
+                required
+              />
+
+              <select
+                value={registerRole}
+                onChange={(e) => setRegisterRole(e.target.value)}
+              >
+                <option value="parent">Ota-ona</option>
+                <option value="caregiver">Tarbiyachi</option>
+                <option value="deputy_director">Direktor o‘rinbosari</option>
+              </select>
+            </>
+          )}
+
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Login"
+            required
+          />
+
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Parol"
+            required
+          />
+
+          <button type="submit" className="primary-button">
+            {authMode === "login" ? "Kirish" : "Ro‘yxatdan o‘tish"}
+          </button>
+
+          {authError && <p className="auth-error">{authError}</p>}
+        </form>
+      </main>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h2>Profil topilmadi</h2>
+          <p>Administrator bilan bog‘laning.</p>
+          <button onClick={logout}>Chiqish</button>
+        </section>
+      </main>
+    );
+  }
+
+  if (profile.status === "pending") {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h2>Tasdiqlash kutilmoqda</h2>
+          <p>Administrator hisobingizni tasdiqlashi kerak.</p>
+          <button onClick={logout}>Chiqish</button>
+        </section>
+      </main>
+    );
+  }
+
+  if (profile.status !== "approved") {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <h2>Hisob faol emas</h2>
+          <p>Administrator bilan bog‘laning.</p>
+          <button onClick={logout}>Chiqish</button>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <h2>Oksana School</h2>
+          <span>Yotoqxona tizimi</span>
+        </div>
+
+        <div className="profile-mini">
+          <strong>{profile.name}</strong>
+          <span>{ROLES[role] || role}</span>
+        </div>
+
+        <nav>
+          {visibleMenu.map((item) => (
+            <button
+              key={item.id}
+              className={page === item.id ? "active" : ""}
+              onClick={() => setPage(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <button className="logout-button" onClick={logout}>
+          Chiqish
+        </button>
+      </aside>
+
+      <main className="main-content">
+        <header className="topbar">
+          <h1>{visibleMenu.find((item) => item.id === page)?.label || "Oksana School"}</h1>
+          <span>{new Date().toLocaleDateString("uz-UZ")}</span>
+        </header>
+
+        {page === "home" && (
+          <section>
+            <h2>Xush kelibsiz, {profile.name}!</h2>
+            <div className="dashboard-grid">
+              <div className="dashboard-card">
+                <span>O‘quvchilar</span>
+                <strong>{students.length}</strong>
+              </div>
+              <div className="dashboard-card">
+                <span>Xonalar</span>
+                <strong>{rooms.length}</strong>
+              </div>
+              <div className="dashboard-card">
+                <span>Bugungi davomat</span>
+                <strong>
+                  {attendance.filter(
+                    (item) =>
+                      item.date === new Date().toISOString().slice(0, 10)
+                  ).length}
+                </strong>
+              </div>
+              <div className="dashboard-card">
+                <span>Xabarlar</span>
+                <strong>{conversations.length}</strong>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {page === "students" && (
+          <section>
+            <h2>O‘quvchilar</h2>
+
+            {(isAdmin || isDeputy) && (
+              <>
+                <form className="data-form" onSubmit={saveStudent}>
+                  <input
+                    value={studentName}
+                    onChange={(e) => setStudentName(e.target.value)}
+                    placeholder="F.I.O."
+                    required
+                  />
+                  <input
+                    value={studentParent}
+                    onChange={(e) => setStudentParent(e.target.value)}
+                    placeholder="Ota-ona ismi"
+                  />
+                  <input
+                    type="date"
+                    value={studentBirth}
+                    onChange={(e) => setStudentBirth(e.target.value)}
+                  />
+                  <select
+                    value={studentGender}
+                    onChange={(e) => setStudentGender(e.target.value)}
+                  >
+                    <option value="">Jins</option>
+                    <option value="O‘g‘il">O‘g‘il</option>
+                    <option value="Qiz">Qiz</option>
+                  </select>
+                  <input
+                    value={studentGrade}
+                    onChange={(e) => setStudentGrade(e.target.value)}
+                    placeholder="Sinf"
+                  />
+                  <input
+                    value={studentRoom}
+                    onChange={(e) => setStudentRoom(e.target.value)}
+                    placeholder="Xona"
+                  />
+
+                  <select
+                    value={studentParentUid}
+                    onChange={(e) => setStudentParentUid(e.target.value)}
+                  >
+                    <option value="">Ota-onani biriktirish</option>
+                    {users
+                      .filter((item) => item.role === "parent" && item.status === "approved")
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                  </select>
+
+                  <select
+                    value={studentCaregiverUid}
+                    onChange={(e) => setStudentCaregiverUid(e.target.value)}
+                  >
+                    <option value="">Tarbiyachini biriktirish</option>
+                    {users
+                      .filter((item) =>
+                        ["caregiver", "worker"].includes(item.role) &&
+                        item.status === "approved"
+                      )
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                  </select>
+
+                  <button className="primary-button" type="submit">
+                    {editingStudent ? "Saqlash" : "O‘quvchi qo‘shish"}
+                  </button>
+
+                  {editingStudent && (
+                    <button type="button" onClick={clearStudentForm}>
+                      Bekor qilish
+                    </button>
+                  )}
+                </form>
+
+                <label className="excel-upload">
+                  Excel fayl yuklash
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={importStudents}
+                  />
+                </label>
+              </>
+            )}
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>F.I.O.</th>
+                    <th>Sinf</th>
+                    <th>Xona</th>
+                    <th>Ota-ona</th>
+                    {(isAdmin || isDeputy) && <th>Amallar</th>}
+                    {isCaregiver && <th>Chat</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student) => (
+                    <tr key={student.id}>
+                      <td>{student.name}</td>
+                      <td>{student.grade}</td>
+                      <td>{student.room}</td>
+                      <td>{student.parent || "—"}</td>
+
+                      {(isAdmin || isDeputy) && (
+                        <td>
+                          <button onClick={() => editStudent(student)}>
+                            Tahrirlash
+                          </button>
+                          {isAdmin && (
+                            <button onClick={() => removeStudent(student.id)}>
+                              O‘chirish
+                            </button>
+                          )}
+                        </td>
+                      )}
+
+                      {isCaregiver && (
+                        <td>
+                          <button onClick={() => createConversation(student)}>
+                            Chat
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+
+                  {students.length === 0 && (
+                    <tr>
+                      <td colSpan="6">O‘quvchilar topilmadi.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {page === "rooms" && (
+          <section>
+            <h2>Xonalar</h2>
+
+            {(isAdmin || isDeputy) && (
+              <form className="data-form" onSubmit={saveRoom}>
+                <input
+                  value={roomName}
+                  onChange={(e) => setRoomName(e.target.value)}
+                  placeholder="Xona raqami yoki nomi"
+                  required
+                />
+                <input
+                  type="number"
+                  value={roomCapacity}
+                  onChange={(e) => setRoomCapacity(e.target.value)}
+                  placeholder="Sig‘imi"
+                  min="1"
+                />
+                <button className="primary-button">Xona qo‘shish</button>
+              </form>
+            )}
+
+            <div className="dashboard-grid">
+              {rooms.map((room) => (
+                <div className="dashboard-card" key={room.id}>
+                  <h3>{room.name}</h3>
+                  <p>Sig‘imi: {room.capacity || "—"}</p>
+                  <p>
+                    O‘quvchilar:{" "}
+                    {students.filter((student) => student.room === room.name).length}
+                  </p>
+                  {isAdmin && (
+                    <button onClick={() => removeRoom(room.id)}>
+                      O‘chirish
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {page === "attendance" && (
+          <section>
+            <h2>Davomat</h2>
+            <p>Bugungi sana: {new Date().toLocaleDateString("uz-UZ")}</p>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>O‘quvchi</th>
+                    <th>Sinf</th>
+                    <th>Xona</th>
+                    <th>Holat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student) => {
+                    const today = new Date().toISOString().slice(0, 10);
+                    const record = attendance.find(
+                      (item) =>
+                        item.studentId === student.id &&
+                        item.date === today
+                    );
+
+                    return (
+                      <tr key={student.id}>
+                        <td>{student.name}</td>
+                        <td>{student.grade}</td>
+                        <td>{student.room}</td>
+                        <td>
+                          {(isAdmin || isDeputy || isCaregiver) ? (
+                            <select
+                              value={record?.status || ""}
+                              onChange={(e) =>
+                                markAttendance(student, e.target.value)
+                              }
+                            >
+                              <option value="">Belgilanmagan</option>
+                              <option value="Kelgan">Kelgan</option>
+                              <option value="Ketgan">Ketgan</option>
+                            </select>
+                          ) : (
+                            record?.status || "Belgilanmagan"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {page === "users" && isAdmin && (
+          <section>
+            <h2>Foydalanuvchilar</h2>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ism</th>
+                    <th>Login</th>
+                    <th>Rol</th>
+                    <th>Holat</th>
+                    <th>Amal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.name}</td>
+                      <td>{item.username}</td>
+                      <td>{ROLES[normalizeRole(item.role)] || item.role}</td>
+                      <td>{item.status}</td>
+                      <td>
+                        {item.status === "pending" && (
+                          <>
+                            <button onClick={() => approveUser(item.id)}>
+                              Tasdiqlash
+                            </button>
+                            <button onClick={() => rejectUser(item.id)}>
+                              Rad etish
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {page === "chat" && (
+          <section>
+            <h2>Xabarlar</h2>
+
+            <div className="chat-layout">
+              <div className="chat-list">
+                {conversations.map((conversation) => (
+                  <button
+                    key={conversation.id}
+                    onClick={() => startChat(conversation)}
+                    className={
+                      selectedConversation?.id === conversation.id
+                        ? "active"
+                        : ""
+                    }
+                  >
+                    {conversation.studentName || "O‘quvchi"}
+                    <small>{conversation.lastMessage || "Yangi suhbat"}</small>
+                  </button>
+                ))}
+              </div>
+
+              <div className="chat-window">
+                {selectedConversation ? (
+                  <>
+                    <h3>{selectedConversation.studentName}</h3>
+
+                    <div className="chat-messages">
+                      {chatMessages.map((message) => (
+                        <div
+                          key={message.id}
+                          className={
+                            message.senderUid === user.uid
+                              ? "chat-message mine"
+                              : "chat-message"
+                          }
+                        >
+                          <strong>{message.senderName}</strong>
+                          <p>{message.text}</p>
+                          <small>
+                            {message.createdAt?.toDate
+                              ? message.createdAt.toDate().toLocaleString("uz-UZ")
+                              : "Yuborilmoqda..."}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+
+                    <form onSubmit={sendMessage} className="chat-form">
+                      <input
+                        value={chatText}
+                        onChange={(e) => setChatText(e.target.value)}
+                        placeholder="Xabar yozing..."
+                      />
+                      <button className="primary-button">Yuborish</button>
+                    </form>
+                  </>
+                ) : (
+                  <p>Suhbatni tanlang.</p>
+                )}
+              </div>
+            </div>
+
+            {isParent && students.length === 0 && (
+              <p>Hozircha hisobingizga farzand biriktirilmagan.</p>
+            )}
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}

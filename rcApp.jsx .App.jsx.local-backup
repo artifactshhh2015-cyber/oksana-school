@@ -1,0 +1,449 @@
+warning: in the working copy of 'src/App.jsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/src/App.jsx b/src/App.jsx[m
+[1mindex 2f37ffa..aa18d4b 100644[m
+[1m--- a/src/App.jsx[m
+[1m+++ b/src/App.jsx[m
+[36m@@ -1,1830 +1,1132 @@[m
+ [m
+[31m-[m
+[31m-import { useEffect, useMemo, useRef, useState } from "react";[m
+[32m+[m[32mimport { useEffect, useState } from "react";[m
+ import * as XLSX from "xlsx";[m
+ import { auth, db } from "./firebase";[m
+[32m+[m
+ import {[m
+   signInWithEmailAndPassword,[m
+   createUserWithEmailAndPassword,[m
+   signOut,[m
+   onAuthStateChanged[m
+ } from "firebase/auth";[m
+[32m+[m
+ import {[m
+[32m+[m[32m  collection,[m
+   doc,[m
+   getDoc,[m
+[32m+[m[32m  getDocs,[m
+   setDoc,[m
+[31m-  collection,[m
+   addDoc,[m
+[32m+[m[32m  updateDoc,[m
+[32m+[m[32m  deleteDoc,[m
+   query,[m
+   where,[m
+   onSnapshot,[m
+[31m-  serverTimestamp,[m
+[31m-  updateDoc[m
+[32m+[m[32m  orderBy,[m
+[32m+[m[32m  serverTimestamp[m
+ } from "firebase/firestore";[m
+[32m+[m
+ import "./App.css";[m
+ [m
+[31m-const STORAGE_KEY = "ocs_data";[m
+[31m-[m
+[31m-const initialData = {[m
+[31m-  users: [],[m
+[31m-  students: [],[m
+[31m-  rooms: [],[m
+[31m-  attendance: [],[m
+[31m-  clubs: [],[m
+[31m-  sports: [],[m
+[31m-  nominations: [],[m
+[31m-  messages: [],[m
+[32m+[m[32mconst ROLES = {[m
+[32m+[m[32m  admin: "Administrator",[m
+[32m+[m[32m  deputy_director: "Direktor o‘rinbosari",[m
+[32m+[m[32m  caregiver: "Tarbiyachi",[m
+[32m+[m[32m  worker: "Tarbiyachi",[m
+[32m+[m[32m  parent: "Ota-ona"[m
+ };[m
+ [m
+[31m-const menuItems = [[m
+[31m-  { id: "dashboard", icon: "⌂", label: "Bosh sahifa" },[m
+[31m-  { id: "students", icon: "♙", label: "O‘quvchilar" },[m
+[31m-  { id: "rooms", icon: "▦", label: "Xonalar" },[m
+[31m-  { id: "attendance", icon: "✓", label: "Davomat" },[m
+[31m-  { id: "parents", icon: "♧", label: "Ota-onalar" },[m
+[31m-  { id: "staff", icon: "♟", label: "Xodimlar" },[m
+[31m-  { id: "clubs", icon: "✦", label: "To‘garaklar" },[m
+[31m-  { id: "sports", icon: "⚽", label: "Sport natijalari" },[m
+[31m-  { id: "nominations", icon: "🏆", label: "Nominatsiyalar" },[m
+[31m-  { id: "messages", icon: "✉", label: "Xabarlar" },[m
+[31m-  { id: "reports", icon: "▤", label: "Hisobotlar" },[m
+[31m-  { id: "settings", icon: "⚙", label: "Sozlamalar" },[m
+[31m-];[m
+[31m-[m
+[31m-function loadData() {[m
+[31m-  try {[m
+[31m-    const saved = localStorage.getItem(STORAGE_KEY);[m
+[31m-[m
+[31m-    if (!saved) return initialData;[m
+[31m-[m
+[31m-    const parsed = JSON.parse(saved);[m
+[31m-[m
+[31m-    return {[m
+[31m-      ...initialData,[m
+[31m-      ...parsed,[m
+[31m-      users: parsed.users || [],[m
+[31m-    };[m
+[31m-  } catch {[m
+[31m-    return initialData;[m
+[31m-  }[m
+[31m-}[m
+[31m-[m
+[31m-function Empty({ children = "Hozircha ma’lumot mavjud emas." }) {[m
+[31m-  return ([m
+[31m-    <p style={{ textAlign: "center", padding: 25, color: "#9299ad" }}>[m
+[31m-      {children}[m
+[31m-    </p>[m
+[31m-  );[m
+[31m-}[m
+[32m+[m[32mconst EMAIL_DOMAIN = "@oksana-school.test";[m
+ [m
+[31m-function Table({ headers, children }) {[m
+[31m-  return ([m
+[31m-    <div className="table-wrap">[m
+[31m-      <table>[m
+[31m-        <thead>[m
+[31m-          <tr>[m
+[31m-            {headers.map((header, index) => ([m
+[31m-              <th key={index}>{header}</th>[m
+[31m-            ))}[m
+[31m-          </tr>[m
+[31m-        </thead>[m
+[31m-        <tbody>{children}</tbody>[m
+[31m-      </table>[m
+[31m-    </div>[m
+[31m-  );[m
+[32m+[m[32mfunction makeEmail(username) {[m
+[32m+[m[32m  return username.trim().toLowerCase() + EMAIL_DOMAIN;[m
+ }[m
+ [m
+[31m-function Field({ label, children }) {[m
+[31m-  return ([m
+[31m-    <label className="field">[m
+[31m-      <span>{label}</span>[m
+[31m-      {children}[m
+[31m-    </label>[m
+[31m-  );[m
+[32m+[m[32mfunction normalizeRole(role) {[m
+[32m+[m[32m  return role === "worker" ? "caregiver" : role;[m
+ }[m
+ [m
+ export default function App() {[m
+[31m-  const [data, setData] = useState(loadData);[m
+   const [user, setUser] = useState(null);[m
+[31m-  const [authLoading, setAuthLoading] = useState(true);[m
+[31m-  const registrationInProgress = useRef(false);[m
+[32m+[m[32m  const [profile, setProfile] = useState(null);[m
+[32m+[m[32m  const [loading, setLoading] = useState(true);[m
+[32m+[m
+[32m+[m[32m  const [page, setPage] = useState("home");[m
+[32m+[m[32m  const [authMode, setAuthMode] = useState("login");[m
+ [m
+[31m-  // Firebase Auth is the source of truth for the current session.[m
+[32m+[m[32m  const [username, setUsername] = useState("");[m
+[32m+[m[32m  const [password, setPassword] = useState("");[m
+[32m+[m[32m  const [fullName, setFullName] = useState("");[m
+[32m+[m[32m  const [registerRole, setRegisterRole] = useState("parent");[m
+[32m+[m[32m  const [authError, setAuthError] = useState("");[m
+[32m+[m
+[32m+[m[32m  const [students, setStudents] = useState([]);[m
+[32m+[m[32m  const [rooms, setRooms] = useState([]);[m
+[32m+[m[32m  const [users, setUsers] = useState([]);[m
+[32m+[m[32m  const [attendance, setAttendance] = useState([]);[m
+[32m+[m[32m  const [conversations, setConversations] = useState([]);[m
+[32m+[m
+[32m+[m[32m  const [studentName, setStudentName] = useState("");[m
+[32m+[m[32m  const [studentParent, setStudentParent] = useState("");[m
+[32m+[m[32m  const [studentBirth, setStudentBirth] = useState("");[m
+[32m+[m[32m  const [studentGender, setStudentGender] = useState("");[m
+[32m+[m[32m  const [studentGrade, setStudentGrade] = useState("");[m
+[32m+[m[32m  const [studentRoom, setStudentRoom] = useState("");[m
+[32m+[m[32m  const [studentParentUid, setStudentParentUid] = useState("");[m
+[32m+[m[32m  const [studentCaregiverUid, setStudentCaregiverUid] = useState("");[m
+[32m+[m[32m  const [editingStudent, setEditingStudent] = useState(null);[m
+[32m+[m
+[32m+[m[32m  const [roomName, setRoomName] = useState("");[m
+[32m+[m[32m  const [roomCapacity, setRoomCapacity] = useState("");[m
+[32m+[m
+[32m+[m[32m  const [selectedConversation, setSelectedConversation] = useState(null);[m
+[32m+[m[32m  const [chatText, setChatText] = useState("");[m
+[32m+[m[32m  const [chatMessages, setChatMessages] = useState([]);[m
+[32m+[m
+[32m+[m[32m  const role = normalizeRole(profile?.role);[m
+[32m+[m[32m  const isAdmin = role === "admin";[m
+[32m+[m[32m  const isDeputy = role === "deputy_director";[m
+[32m+[m[32m  const isCaregiver = role === "caregiver";[m
+[32m+[m[32m  const isParent = role === "parent";[m
+[32m+[m
+[32m+[m[32m  // Authentication[m
+   useEffect(() => {[m
+     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {[m
+[31m-      // Registration temporarily signs in the new account; do not treat it as a login.[m
+[31m-      if (registrationInProgress.current) return;[m
+[32m+[m[32m      setUser(firebaseUser);[m
+ [m
+       if (!firebaseUser) {[m
+[31m-        setUser(null);[m
+[31m-        setAuthLoading(false);[m
+[32m+[m[32m        setProfile(null);[m
+[32m+[m[32m        setLoading(false);[m
+         return;[m
+       }[m
+ [m
+       try {[m
+[31m-        const profileSnapshot = await getDoc(doc(db, "users", firebaseUser.uid));[m
+[31m-[m
+[31m-        if (!profileSnapshot.exists()) {[m
+[31m-          setUser(null);[m
+[31m-          await signOut(auth);[m
+[31m-          return;[m
+[31m-        }[m
+[31m-[m
+[31m-        const profile = profileSnapshot.data();[m
+[31m-        if (profile.status !== "approved") {[m
+[31m-          setUser(null);[m
+[31m-          await signOut(auth);[m
+[31m-          return;[m
+[32m+[m[32m        const profileSnap = await getDoc([m
+[32m+[m[32m          doc(db, "users", firebaseUser.uid)[m
+[32m+[m[32m        );[m
+[32m+[m
+[32m+[m[32m        if (!profileSnap.exists()) {[m
+[32m+[m[32m          setProfile(null);[m
+[32m+[m[32m        } else {[m
+[32m+[m[32m          setProfile({[m
+[32m+[m[32m            id: firebaseUser.uid,[m
+[32m+[m[32m            ...profileSnap.data()[m
+[32m+[m[32m          });[m
+         }[m
+[31m-[m
+[31m-        setUser({ id: firebaseUser.uid, ...profile });[m
+       } catch (error) {[m
+[31m-        console.error("Sessiyani tekshirishda xatolik:", error);[m
+[31m-        setUser(null);[m
+[31m-      } finally {[m
+[31m-        setAuthLoading(false);[m
+[32m+[m[32m        console.error(error);[m
+[32m+[m[32m        setProfile(null);[m
+       }[m
+[32m+[m
+[32m+[m[32m      setLoading(false);[m
+     });[m
+ [m
+     return () => unsubscribe();[m
+   }, []);[m
+ [m
+[31m-useEffect(() => {[m
+[31m-  if (!user || user.role !== "admin") {[m
+[31m-    return;[m
+[31m-  }[m
+[32m+[m[32m  // Load data according to role[m
+[32m+[m[32m  useEffect(() => {[m
+[32m+[m[32m    if (!user || !profile || profile.status !== "approved") return;[m
+[32m+[m
+[32m+[m[32m    const unsubscribers = [];[m
+[32m+[m
+[32m+[m[32m    const subscribe = (collectionName, setter, constraints = []) => {[m
+[32m+[m[32m      const q = query(collection(db, collectionName), ...constraints);[m
+[32m+[m
+[32m+[m[32m      const unsub = onSnapshot([m
+[32m+[m[32m        q,[m
+[32m+[m[32m        (snapshot) => {[m
+[32m+[m[32m          setter([m
+[32m+[m[32m            snapshot.docs.map((item) => ({[m
+[32m+[m[32m              id: item.id,[m
+[32m+[m[32m              ...item.data()[m
+[32m+[m[32m            }))[m
+[32m+[m[32m          );[m
+[32m+[m[32m        },[m
+[32m+[m[32m        (error) => console.error(collectionName, error)[m
+[32m+[m[32m      );[m
+ [m
+[31m-  const unsubscribe = onSnapshot([m
+[31m-    collection(db, "users"),[m
+[31m-    (snapshot) => {[m
+[31m-      const users = snapshot.docs.map((item) => ({[m
+[31m-        id: item.id,[m
+[31m-        ...item.data(),[m
+[31m-      }));[m
+[31m-[m
+[31m-      console.log("Firebase foydalanuvchilari:", users);[m
+[31m-      console.log("Jami foydalanuvchilar:", users.length);[m
+[31m-      console.log("Pending foydalanuvchilar:", users.filter(u => u.status === "pending")); [m
+[31m-[m
+[31m-      setData((old) => ({[m
+[31m-        ...old,[m
+[31m-        users,[m
+[31m-      }));[m
+[31m-    },[m
+[31m-    (error) => {[m
+[31m-      console.error("Firebase xatosi:", error);[m
+[31m-      notify("Firebase xatosi: " + error.message);[m
+[31m-    }[m
+[31m-  );[m
+[32m+[m[32m      unsubscribers.push(unsub);[m
+[32m+[m[32m    };[m
+ [m
+[31m-  return () => unsubscribe();[m
+[31m-}, [user?.id, user?.role]);[m
+[32m+[m[32m    if (isAdmin || isDeputy) {[m
+[32m+[m[32m      subscribe("students", setStudents);[m
+[32m+[m[32m      subscribe("rooms", setRooms);[m
+[32m+[m[32m      subscribe("attendance", setAttendance);[m
+[32m+[m[32m      subscribe("users", setUsers);[m
+[32m+[m[32m    } else if (isCaregiver) {[m
+[32m+[m[32m      subscribe([m
+[32m+[m[32m        "students",[m
+[32m+[m[32m        setStudents,[m
+[32m+[m[32m        [where("caregiverUid", "==", user.uid)][m
+[32m+[m[32m      );[m
+[32m+[m[32m      subscribe("rooms", setRooms);[m
+[32m+[m[32m      subscribe([m
+[32m+[m[32m        "attendance",[m
+[32m+[m[32m        setAttendance[m
+[32m+[m[32m      );[m
+[32m+[m[32m    } else if (isParent) {[m
+[32m+[m[32m      subscribe([m
+[32m+[m[32m        "students",[m
+[32m+[m[32m        setStudents,[m
+[32m+[m[32m        [where("parentUid", "==", user.uid)][m
+[32m+[m[32m      );[m
+[32m+[m[32m      subscribe("attendance", setAttendance);[m
+[32m+[m[32m    }[m
+ [m
+[31m-  const [activePage, setActivePage] = useState("dashboard");[m
+[31m-  const [authMode, setAuthMode] = useState("login");[m
+[31m-  const [toast, setToast] = useState("");[m
+[31m-  const [search, setSearch] = useState("");[m
+[31m-[m
+[31m-  const [loginForm, setLoginForm] = useState({[m
+[31m-    username: "",[m
+[31m-    password: "",[m
+[31m-  });[m
+[31m-[m
+[31m-  const [registerForm, setRegisterForm] = useState({[m
+[31m-    name: "",[m
+[31m-    username: "",[m
+[31m-    password: "",[m
+[31m-    role: "parent",[m
+[31m-  });[m
+[31m-[m
+[31m-  const [studentForm, setStudentForm] = useState({[m
+[31m-    name: "",[m
+[31m-    parent: "",[m
+[31m-    birth: "",[m
+[31m-    gender: "O‘g‘il",[m
+[31m-    grade: "",[m
+[31m-    room: "",[m
+[31m-  });[m
+[31m-[m
+[31m-  const [roomForm, setRoomForm] = useState({[m
+[31m-    name: "",[m
+[31m-    capacity: "",[m
+[31m-  });[m
+[31m-[m
+[31m-  const [clubForm, setClubForm] = useState({[m
+[31m-    name: "",[m
+[31m-    leader: "",[m
+[31m-  });[m
+[31m-[m
+[31m-  const [sportForm, setSportForm] = useState({[m
+[31m-    student: "",[m
+[31m-    sport: "",[m
+[31m-    result: "",[m
+[31m-  });[m
+[31m-[m
+[31m-  const [nominationForm, setNominationForm] = useState({[m
+[31m-    student: "",[m
+[31m-    title: "",[m
+[31m-    description: "",[m
+[31m-  });[m
+[31m-[m
+[31m-  const [messageForm, setMessageForm] = useState({[m
+[31m-    title: "",[m
+[31m-    message: "",[m
+[31m-  });[m
+[31m-[m
+[31m-  const [attendanceDate, setAttendanceDate] = useState([m
+[31m-    new Date().toISOString().slice(0, 10)[m
+[31m-  );[m
+[32m+[m[32m    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());[m
+[32m+[m[32m  }, [user, profile, isAdmin, isDeputy, isCaregiver, isParent]);[m
+ [m
+[32m+[m[32m  // Conversations[m
+   useEffect(() => {[m
+[31m-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));[m
+[31m-  }, [data]);[m
+[31m-[m
+[31m-  const notify = (message) => {[m
+[31m-    setToast(message);[m
+[31m-    window.setTimeout(() => setToast(""), 3000);[m
+[31m-  };[m
+[32m+[m[32m    if (!user || !profile || profile.status !== "approved") return;[m
+ [m
+[31m-  const update = (key, value) => {[m
+[31m-    setData((previous) => ({[m
+[31m-      ...previous,[m
+[31m-      [key]: value,[m
+[31m-    }));[m
+[31m-  };[m
+[31m-[m
+[31m-  const isAdmin = user?.role === "admin";[m
+[32m+[m[32m    const q = query([m
+[32m+[m[32m      collection(db, "conversations"),[m
+[32m+[m[32m      where("members", "array-contains", user.uid)[m
+[32m+[m[32m    );[m
+ [m
+[31m-  const pageTitle =[m
+[31m-    menuItems.find((item) => item.id === activePage)?.label || "Bosh sahifa";[m
+[32m+[m[32m    return onSnapshot(q, (snapshot) => {[m
+[32m+[m[32m      setConversations([m
+[32m+[m[32m        snapshot.docs.map((item) => ({[m
+[32m+[m[32m          id: item.id,[m
+[32m+[m[32m          ...item.data()[m
+[32m+[m[32m        }))[m
+[32m+[m[32m      );[m
+[32m+[m[32m    }, console.error);[m
+[32m+[m[32m  }, [user, profile]);[m
+ [m
+[31m-  const approvedUsers = data.users.filter([m
+[31m-    (item) => item.status === "approved"[m
+[31m-  );[m
+[32m+[m[32m  // Chat messages[m
+[32m+[m[32m  useEffect(() => {[m
+[32m+[m[32m    if (!selectedConversation) {[m
+[32m+[m[32m      setChatMessages([]);[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+ [m
+[31m-  const parents = approvedUsers.filter((item) => item.role === "parent");[m
+[31m-  const workers = approvedUsers.filter((item) => item.role === "worker");[m
+[31m-[m
+[31m-  const filteredStudents = useMemo(() => {[m
+[31m-    const value = search.toLowerCase().trim();[m
+[31m-[m
+[31m-    return data.students.filter((student) =>[m
+[31m-      [[m
+[31m-        student.name,[m
+[31m-        student.parent,[m
+[31m-        student.grade,[m
+[31m-        student.room,[m
+[31m-      ][m
+[31m-        .join(" ")[m
+[31m-        .toLowerCase()[m
+[31m-        .includes(value)[m
+[32m+[m[32m    const q = query([m
+[32m+[m[32m      collection([m
+[32m+[m[32m        db,[m
+[32m+[m[32m        "conversations",[m
+[32m+[m[32m        selectedConversation.id,[m
+[32m+[m[32m        "messages"[m
+[32m+[m[32m      ),[m
+[32m+[m[32m      orderBy("createdAt", "asc")[m
+     );[m
+[31m-  }, [data.students, search]);[m
+ [m
+[31m-  async function login(event) {[m
+[31m-  event.preventDefault
