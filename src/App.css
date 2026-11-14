@@ -379,3 +379,164 @@ body {
     width: 100%;
   }
 }
+
+/* ===== STABLE DASHBOARD SCROLL FIX ===== */
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  height: auto;
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-behavior: auto;
+}
+
+#root {
+  display: block;
+  width: 100%;
+  max-width: 1440px;
+  min-height: 100vh;
+  height: auto;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.app-shell {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  height: auto;
+  align-items: stretch;
+  overflow: visible;
+}
+
+.sidebar {
+  position: relative;
+  top: auto;
+  align-self: stretch;
+  flex: 0 0 265px;
+  width: 265px;
+  min-width: 265px;
+  height: auto;
+  min-height: 100vh;
+  max-height: none;
+  overflow: visible;
+}
+
+.main-content {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 100vh;
+  height: auto;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.topbar {
+  position: relative;
+  top: auto;
+  flex-shrink: 0;
+}
+
+.main-content > section {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  flex: 1 0 auto;
+  overflow: visible;
+  animation: none;
+}
+
+.dashboard-grid {
+  width: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-card {
+  min-width: 0;
+  transform: none;
+}
+
+.dashboard-card:hover {
+  transform: translateY(-2px);
+}
+
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.chat-layout {
+  min-width: 0;
+}
+
+.auth-page {
+  min-height: 100vh;
+  height: auto;
+  overflow: visible;
+}
+
+@media (max-width: 1100px) {
+  .sidebar {
+    flex-basis: 235px;
+    width: 235px;
+    min-width: 235px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    height: auto;
+  }
+
+  .main-content {
+    width: 100%;
+    min-height: 0;
+  }
+
+  .sidebar nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .main-content > section {
+    padding: 17px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chat-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}
