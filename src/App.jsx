@@ -1137,6 +1137,7 @@ useEffect(() => {
   }
 
   
+
 function renderRooms() {
   return (
     <>
@@ -1177,18 +1178,51 @@ function renderRooms() {
       </div>
 
       <div className="panel">
-        <h2>O‘quvchilarni xonalarga joylashtirish</h2>
+        <h2>Xonalar va o‘quvchilar</h2>
 
         {data.rooms.length ? (
-          <div className="room-groups">
+          <div className="rooms-list">
             {data.rooms.map((room) => {
               const students = data.students.filter(
                 (student) => student.room === room.name
               );
 
+              const middle = Math.ceil(students.length / 2);
+              const leftStudents = students.slice(0, middle);
+              const rightStudents = students.slice(middle);
+
+              const renderStudentTable = (list, startIndex) => (
+                <div className="room-table-wrapper">
+                  <table className="room-table">
+                    <thead>
+                      <tr>
+                        <th>№</th>
+                        <th>O‘quvchi F.I.O</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((student, index) => (
+                        <tr key={student.id}>
+                          <td>{startIndex + index + 1}</td>
+                          <td>
+                            <strong>{student.name}</strong>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {!list.length && (
+                        <tr>
+                          <td colSpan="2">O‘quvchi yo‘q</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              );
+
               return (
-                <div className="room-group" key={room.id}>
-                  <div className="room-group-header">
+                <div className="room-section" key={room.id}>
+                  <div className="room-title">
                     <div>
                       <h3>{room.name}</h3>
                       <span>
@@ -1204,22 +1238,23 @@ function renderRooms() {
                     </button>
                   </div>
 
-                  {students.length ? (
-                    <div className="room-students">
-                      {students.map((student, index) => (
-                        <div className="room-student" key={student.id}>
-                          <span className="room-student-number">
-                            {index + 1}
-                          </span>
-                          <strong>{student.name}</strong>
+                  <div className="room-tables">
+                    {renderStudentTable(leftStudents, 0)}
+                    {renderStudentTable(rightStudents, middle)}
+                  </div>
 
+                  {students.length > 0 && (
+                    <div className="room-assignment">
+                      <span>O‘quvchini boshqa xonaga o‘tkazish:</span>
+                      {students.map((student) => (
+                        <div className="room-assignment-row" key={student.id}>
+                          <strong>{student.name}</strong>
                           <select
                             value={student.room || ""}
                             onChange={(e) =>
                               assignRoom(student.id, e.target.value)
                             }
                           >
-                            <option value="">Xona tanlang</option>
                             {data.rooms.map((r) => (
                               <option key={r.id} value={r.name}>
                                 {r.name}
@@ -1229,58 +1264,48 @@ function renderRooms() {
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <Empty>Bu xonaga hali o‘quvchi joylashtirilmagan.</Empty>
                   )}
                 </div>
               );
             })}
-
-            {data.students.filter((student) => !student.room).length > 0 && (
-              <div className="room-group">
-                <div className="room-group-header">
-                  <h3>Joylashtirilmagan o‘quvchilar</h3>
-                  <span>
-                    {data.students.filter((s) => !s.room).length} nafar
-                  </span>
-                </div>
-
-                <div className="room-students">
-                  {data.students
-                    .filter((student) => !student.room)
-                    .map((student, index) => (
-                      <div className="room-student" key={student.id}>
-                        <span className="room-student-number">
-                          {index + 1}
-                        </span>
-                        <strong>{student.name}</strong>
-
-                        <select
-                          value=""
-                          onChange={(e) =>
-                            assignRoom(student.id, e.target.value)
-                          }
-                        >
-                          <option value="">Xona tanlang</option>
-                          {data.rooms.map((r) => (
-                            <option key={r.id} value={r.name}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
           </div>
         ) : (
-          <Empty>Avval xona yarating.</Empty>
+          <Empty>Hali xonalar yaratilmagan.</Empty>
+        )}
+
+        {data.students.some((student) => !student.room) && (
+          <div className="room-section">
+            <div className="room-title">
+              <h3>Joylashtirilmagan o‘quvchilar</h3>
+            </div>
+
+            {data.students
+              .filter((student) => !student.room)
+              .map((student) => (
+                <div className="room-assignment-row" key={student.id}>
+                  <strong>{student.name}</strong>
+                  <select
+                    value=""
+                    onChange={(e) =>
+                      assignRoom(student.id, e.target.value)
+                    }
+                  >
+                    <option value="">Xona tanlang</option>
+                    {data.rooms.map((room) => (
+                      <option key={room.id} value={room.name}>
+                        {room.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+          </div>
         )}
       </div>
     </>
   );
 }
+
 
   function renderAttendance() {
     return (
