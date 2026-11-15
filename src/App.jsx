@@ -44,7 +44,7 @@ const menuItems = [
   { id: "students", icon: "♙", label: "O‘quvchilar" },
   { id: "rooms", icon: "▦", label: "Xonalar" },
   { id: "attendance", icon: "✓", label: "Davomat" },
-  { id: "parents", icon: "♧", label: "Ota-onalar" },
+  { id: "parents", icon: "♧", label: "Onalar" },
   { id: "staff", icon: "♟", label: "Xodimlar" },
   { id: "clubs", icon: "✦", label: "To‘garaklar" },
   { id: "sports", icon: "⚽", label: "Sport natijalari" },
@@ -208,6 +208,8 @@ useEffect(() => {
     grade: "",
     room: "",
   });
+
+  const [editingStudentId, setEditingStudentId] = useState(null);
 
   const [roomForm, setRoomForm] = useState({
     name: "",
@@ -427,32 +429,71 @@ useEffect(() => {
   }
 
   function addStudent(event) {
-    event.preventDefault();
+  event.preventDefault();
 
-    if (!studentForm.name.trim()) {
-      notify("O‘quvchi F.I.O. sini kiriting.");
-      return;
+  const studentName = studentForm.name.trim().replace(/\s+/g, " ");
+
+  if (!studentName) {
+    notify("O‘quvchi F.I.O. sini kiriting.");
+    return;
+  }
+
+  if (!["Erkak", "Ayol"].includes(studentForm.gender)) {
+    notify("Jins faqat Erkak yoki Ayol bo‘lishi kerak!");
+    return;
+  }
+
+  const normalizedName = studentName.toLocaleLowerCase("uz-UZ");
+
+  const alreadyExists = data.students.some((item) => {
+    if (editingStudentId !== null && item.id === editingStudentId) {
+      return false;
     }
 
+    return (
+      (item.name || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLocaleLowerCase("uz-UZ") === normalizedName
+    );
+  });
+
+  if (alreadyExists) {
+    notify("Bu F.I.O. bilan o‘quvchi avval qo‘shilgan!");
+    return;
+  }
+
+  if (editingStudentId !== null) {
+    const updatedStudents = data.students.map((item) =>
+      item.id === editingStudentId
+        ? { ...item, ...studentForm, name: studentName }
+        : item
+    );
+
+    update("students", updatedStudents);
+    notify("O‘quvchi ma’lumotlari yangilandi!");
+  } else {
     const student = {
       id: Date.now(),
       ...studentForm,
-      name: studentForm.name.trim(),
+      name: studentName,
     };
 
     update("students", [...data.students, student]);
-
-    setStudentForm({
-      name: "",
-      parent: "",
-      birth: "",
-      gender: "Erkak",
-      grade: "",
-      room: "",
-    });
-
     notify("O‘quvchi qo‘shildi!");
   }
+
+  setStudentForm({
+    name: "",
+    parent: "",
+    birth: "",
+    gender: "Erkak",
+    grade: "",
+    room: "",
+  });
+
+  setEditingStudentId(null);
+}
 
   function deleteStudent(id) {
     if (!window.confirm("O‘quvchini o‘chirmoqchimisiz?")) return;
@@ -501,7 +542,7 @@ reader.onload = (e) => {
           id: Date.now() + Math.random(),
           name: getValue("f.i.o", "fio", "ism", "ismfamiliya")
             .replace(/\s+/g, " "),
-          parent: getValue("ota-ona", "otaona", "otaonasi"),
+          parent: getValue("Onasi", "otaona", "otaonasi"),
           birth: getValue("tugilgansana", "tug‘ilgansana", "birth"),
           gender: getValue("jins") || "Ko‘rsatilmagan",
           grade: getValue("sinf", "grade"),
@@ -805,7 +846,7 @@ async function deleteUser(user) {
   function exportExcel() {
     const rows = data.students.map((student) => ({
       "F.I.O": student.name,
-      "Ota-ona": student.parent,
+      "Onasi": student.parent,
       "Tugilgan sana": student.birth,
       "Jins": student.gender,
       "Sinf": student.grade,
@@ -823,7 +864,7 @@ async function deleteUser(user) {
 
   function downloadTemplate() {
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ["F.I.O", "Ota-ona", "Tugilgan sana", "Jins", "Sinf", "Xona"],
+      ["F.I.O", "Onasi", "Tugilgan sana", "Jins", "Sinf", "Xona"],
       ["Ali Valiyev", "Vali Valiyev", "2012-05-10", "Erkak", "7-A", "101"],
     ]);
 
@@ -960,7 +1001,7 @@ async function deleteUser(user) {
                     })
                   }
                 >
-                  <option value="parent">Ota-ona</option>
+                  <option value="parent">Onasi</option>
                   <option value="worker">Xodim</option>
                 </select>
               </Field>
@@ -1009,7 +1050,7 @@ async function deleteUser(user) {
 
           <div className="stat">
             <span>👨‍👩‍👧</span>
-            <p>Ota-onalar</p>
+            <p>Onalar</p>
             <h2>{parents.length}</h2>
           </div>
 
@@ -1039,7 +1080,7 @@ async function deleteUser(user) {
         <div className="panel">
           <h2>Oxirgi qo‘shilgan o‘quvchilar</h2>
           {data.students.length ? (
-            <Table headers={["F.I.O.", "Sinf", "Xona", "Ota-ona"]}>
+            <Table headers={["F.I.O.", "Sinf", "Xona", "Onasi"]}>
               {data.students.slice(-5).reverse().map((student) => (
                 <tr key={student.id}>
                   <td>{student.name}</td>
@@ -1077,13 +1118,13 @@ function renderStudents() {
               />
             </Field>
 
-            <Field label="Ota-onasi (ixtiyoriy)">
+            <Field label="Onasi (ixtiyoriy)">
               <input
                 value={studentForm.parent}
                 onChange={(e) =>
                   setStudentForm({ ...studentForm, parent: e.target.value })
                 }
-                placeholder="Ota-ona F.I.O."
+                placeholder="Onasi F.I.O."
               />
             </Field>
 
@@ -1180,7 +1221,7 @@ function renderStudents() {
             headers={[
               "№",
               "F.I.O.",
-              "Ota-ona",
+              "Onasi",
               "Tug‘ilgan sana",
               "Jins",
               "Sinf",
@@ -1202,13 +1243,38 @@ function renderStudents() {
                 <td>{student.grade || "—"}</td>
                 <td>{student.room || "—"}</td>
                 <td>
-                  <button
-                    className="delete-button"
-                    onClick={() => deleteStudent(student.id)}
-                  >
-                    O‘chirish
-                  </button>
-                </td>
+  <div className="user-actions">
+    <button
+      className="secondary-button"
+      onClick={() => {
+        setStudentForm({
+          name: student.name || "",
+          parent: student.parent || "",
+          birth: student.birth || "",
+          gender: student.gender || "Erkak",
+          grade: student.grade || "",
+          room: student.room || "",
+        });
+
+        setEditingStudentId(student.id);
+
+        window.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
+      }}
+    >
+      ✏️ Tahrirlash
+    </button>
+
+    <button
+      className="delete-button"
+      onClick={() => deleteStudent(student.id)}
+    >
+      O‘chirish
+    </button>
+  </div>
+</td>
               </tr>
             ))}
           </Table>
@@ -1487,7 +1553,7 @@ function renderAttendance() {
 function renderParents() {
   return (
     <div className="panel">
-      <h2>Ota-onalar ro‘yxati</h2>
+      <h2>Onalar ro‘yxati</h2>
 
       {parents.length ? (
         <Table headers={["F.I.O.", "Login", "Holati", "Amallar"]}>
@@ -1525,7 +1591,7 @@ function renderParents() {
           ))}
         </Table>
       ) : (
-        <Empty>Ota-onalar ro‘yxati bo‘sh.</Empty>
+        <Empty>Onalar ro‘yxati bo‘sh.</Empty>
       )}
     </div>
   );
@@ -1872,7 +1938,7 @@ function renderParents() {
 
         <p>Jami o‘quvchilar: {data.students.length}</p>
         <p>Jami xonalar: {data.rooms.length}</p>
-        <p>Ota-onalar: {parents.length}</p>
+        <p>Onalar: {parents.length}</p>
         <p>Xodimlar: {workers.length}</p>
         <p>Belgilangan davomat yozuvlari: {data.attendance.length}</p>
         <p>Kelganlar yozuvlari: {present}</p>
