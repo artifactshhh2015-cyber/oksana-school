@@ -1,14 +1,15 @@
-
-import "./App.css"; 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+
 import { auth, db } from "./firebase";
+
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
 } from "firebase/auth";
+
 import {
   doc,
   getDoc,
@@ -19,8 +20,10 @@ import {
   where,
   onSnapshot,
   serverTimestamp,
-  updateDoc
+  updateDoc,
+  deleteDoc,
 } from "firebase/firestore";
+
 import "./App.css";
 
 const STORAGE_KEY = "ocs_data";
@@ -131,7 +134,7 @@ export default function App() {
         }
 
         const profile = profileSnapshot.data();
-        if (profile.status !== "approved") {
+        if (profile.status !== "approved" || profile.status === "disabled") {
           setUser(null);
           await signOut(auth);
           return;
@@ -263,7 +266,11 @@ useEffect(() => {
   );
 
   const parents = approvedUsers.filter((item) => item.role === "parent");
-  const workers = approvedUsers.filter((item) => item.role === "worker");
+  const workers = data.users.filter(
+  (item) =>
+    item.role === "worker" &&
+    item.status !== "pending"
+  );
 
   const filteredStudents = useMemo(() => {
     const value = search.toLowerCase().trim();
@@ -548,31 +555,31 @@ useEffect(() => {
   }
 
   function assignRoom(studentId, roomName) {
-    const room = data.rooms.find((item) => item.name === roomName);
+  const room = data.rooms.find((item) => item.name === roomName);
 
-    if (room) {
-      const count = data.students.filter(
-        (student) =>
-          student.room === roomName && student.id !== studentId
-      ).length;
+  if (room) {
+    const count = data.students.filter(
+      (student) =>
+        student.room === roomName && student.id !== studentId
+    ).length;
 
-      if (count >= room.capacity) {
-        notify("Bu xonada bo‘sh joy qolmagan!");
-        return;
-      }
+    if (count >= Number(room.capacity)) {
+      notify("Bu xona to‘lgan! Boshqa xona tanlang.");
+      return;
     }
-
-    update(
-      "students",
-      data.students.map((student) =>
-        student.id === studentId
-          ? { ...student, room: roomName }
-          : student
-      )
-    );
-
-    notify("O‘quvchining xonasi yangilandi.");
   }
+
+  update(
+    "students",
+    data.students.map((student) =>
+      student.id === studentId
+        ? { ...student, room: roomName }
+        : student
+    )
+  );
+
+  notify("O‘quvchining xonasi yangilandi.");
+}
 
   function saveAttendance(studentId, status) {
     const exists = data.attendance.find(
@@ -726,6 +733,45 @@ useEffect(() => {
 
     notify("Ma’lumot o‘chirildi.");
   }
+
+  async function toggleUserStatus(user) {
+  const newStatus =
+    user.status === "disabled" ? "approved" : "disabled";
+
+  try {
+    await updateDoc(doc(db, "users", user.id), {
+      status: newStatus,
+    });
+
+    notify(
+      newStatus === "disabled"
+        ? "Foydalanuvchi to‘xtatildi."
+        : "Foydalanuvchi faollashtirildi."
+    );
+  } catch (error) {
+    console.error(error);
+    notify("Xatolik: " + error.message);
+  }
+} 
+
+async function deleteUser(user) {
+  if (!window.confirm(`${user.name} ni o‘chirishni tasdiqlaysizmi?`)) {
+    return;
+  }
+
+  try {
+    await deleteDoc(doc(db, "users", user.id));
+
+    if (user.username) {
+      await deleteDoc(doc(db, "usernames", user.username));
+    }
+
+    notify("Foydalanuvchi o‘chirildi.");
+  } catch (error) {
+    console.error(error);
+    notify("O‘chirishda xatolik: " + error.message);
+  }
+}
 
   function exportExcel() {
     const rows = data.students.map((student) => ({
@@ -1137,8 +1183,11 @@ useEffect(() => {
   }
 
   
-
 function renderRooms() {
+  const sortedRooms = [...data.rooms].sort((a, b) =>
+    a.name.localeCompare(b.name, "uz", { numeric: true })
+  );
+
   return (
     <>
       <div className="panel">
@@ -1180,12 +1229,14 @@ function renderRooms() {
       <div className="panel">
         <h2>Xonalar va o‘quvchilar</h2>
 
-        {data.rooms.length ? (
+        {sortedRooms.length ? (
           <div className="rooms-list">
-            {data.rooms.map((room) => {
-              const students = data.students.filter(
-                (student) => student.room === room.name
-              );
+            {sortedRooms.map((room) => {
+              const students = data.students
+                .filter((student) => student.room === room.name)
+                .sort((a, b) =>
+                  a.name.localeCompare(b.name, "uz")
+                );
 
               const middle = Math.ceil(students.length / 2);
               const leftStudents = students.slice(0, middle);
@@ -1198,21 +1249,45 @@ function renderRooms() {
                       <tr>
                         <th>№</th>
                         <th>O‘quvchi F.I.O</th>
+                        <th>Xona</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {list.map((student, index) => (
                         <tr key={student.id}>
-                          <td>{startIndex + index + 1}</td>
+                          <td>
+                            <span className="room-number-badge">
+                              {startIndex + index + 1}
+                            </span>
+                          </td>
+
                           <td>
                             <strong>{student.name}</strong>
+                          </td>
+
+                          <td>
+                            <select
+                              className="room-inline-select"
+                              value={student.room || ""}
+                              onChange={(e) =>
+                                assignRoom(student.id, e.target.value)
+                              }
+                            >
+                              <option value="">Tanlang</option>
+                              {sortedRooms.map((r) => (
+                                <option key={r.id} value={r.name}>
+                                  {r.name}
+                                </option>
+                              ))}
+                            </select>
                           </td>
                         </tr>
                       ))}
 
                       {!list.length && (
                         <tr>
-                          <td colSpan="2">O‘quvchi yo‘q</td>
+                          <td colSpan="3">O‘quvchi yo‘q</td>
                         </tr>
                       )}
                     </tbody>
@@ -1226,7 +1301,12 @@ function renderRooms() {
                     <div>
                       <h3>{room.name}</h3>
                       <span>
-                        {students.length} / {room.capacity} nafar o‘quvchi
+                        <span>
+                           {students.length} / {room.capacity} nafar o‘quvchi
+                          {students.length >= Number(room.capacity) && (
+                          <strong className="room-full-label"> — XONA TO‘LA</strong>
+                         )}
+                        </span>
                       </span>
                     </div>
 
@@ -1242,29 +1322,6 @@ function renderRooms() {
                     {renderStudentTable(leftStudents, 0)}
                     {renderStudentTable(rightStudents, middle)}
                   </div>
-
-                  {students.length > 0 && (
-                    <div className="room-assignment">
-                      <span>O‘quvchini boshqa xonaga o‘tkazish:</span>
-                      {students.map((student) => (
-                        <div className="room-assignment-row" key={student.id}>
-                          <strong>{student.name}</strong>
-                          <select
-                            value={student.room || ""}
-                            onChange={(e) =>
-                              assignRoom(student.id, e.target.value)
-                            }
-                          >
-                            {data.rooms.map((r) => (
-                              <option key={r.id} value={r.name}>
-                                {r.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -1272,130 +1329,209 @@ function renderRooms() {
         ) : (
           <Empty>Hali xonalar yaratilmagan.</Empty>
         )}
-
-        {data.students.some((student) => !student.room) && (
-          <div className="room-section">
-            <div className="room-title">
-              <h3>Joylashtirilmagan o‘quvchilar</h3>
-            </div>
-
-            {data.students
-              .filter((student) => !student.room)
-              .map((student) => (
-                <div className="room-assignment-row" key={student.id}>
-                  <strong>{student.name}</strong>
-                  <select
-                    value=""
-                    onChange={(e) =>
-                      assignRoom(student.id, e.target.value)
-                    }
-                  >
-                    <option value="">Xona tanlang</option>
-                    {data.rooms.map((room) => (
-                      <option key={room.id} value={room.name}>
-                        {room.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-          </div>
-        )}
       </div>
     </>
   );
 }
 
 
-  function renderAttendance() {
-    return (
-      <div className="panel">
-        <div className="toolbar">
-          <h3>Davomat</h3>
-          <input
-            type="date"
-            value={attendanceDate}
-            onChange={(e) => setAttendanceDate(e.target.value)}
-          />
+function renderAttendance() {
+  return (
+    <div className="panel attendance-panel">
+      <div className="attendance-header">
+        <div>
+          <h2>O‘quvchilar davomati</h2>
+          <p>O‘quvchilarning kelish holatini belgilang</p>
         </div>
 
-        {data.students.length ? (
-          data.students.map((student) => {
-            const record = data.attendance.find(
-              (item) =>
-                item.studentId === student.id &&
-                item.date === attendanceDate
-            );
-
-            return (
-              <div className="attendance-row" key={student.id}>
-                <strong>
-                  {student.name} — {student.grade || "Sinf yo‘q"}
-                </strong>
-
-                <select
-                  value={record?.status || ""}
-                  onChange={(e) =>
-                    saveAttendance(student.id, e.target.value)
-                  }
-                >
-                  <option value="">Belgilanmagan</option>
-                  <option value="Kelgan">Kelgan</option>
-                  <option value="Ketgan">Ketgan</option>
-                </select>
-              </div>
-            );
-          })
-        ) : (
-          <Empty>Davomat uchun avval o‘quvchi qo‘shing.</Empty>
-        )}
+        <input
+          type="date"
+          className="attendance-date"
+          value={attendanceDate}
+          onChange={(e) => setAttendanceDate(e.target.value)}
+        />
       </div>
-    );
-  }
 
-  function renderParents() {
-    return (
-      <div className="panel">
-        <h2>Ota-onalar ro‘yxati</h2>
+      {data.students.length ? (
+        <>
+          <div className="attendance-summary">
+            <div className="attendance-stat">
+              <span>Jami o‘quvchilar</span>
+              <strong>{data.students.length}</strong>
+            </div>
+            <div className="attendance-stat present">
+              <span>Bor</span>
+              <strong>
+                {data.students.filter((student) =>
+                  data.attendance.some(
+                    (item) =>
+                      item.studentId === student.id &&
+                      item.date === attendanceDate &&
+                      item.status === "Bor"
+                  )
+                ).length}
+              </strong>
+            </div>
+            <div className="attendance-stat absent">
+              <span>Yo‘q</span>
+              <strong>
+                {data.students.filter((student) =>
+                  data.attendance.some(
+                    (item) =>
+                      item.studentId === student.id &&
+                      item.date === attendanceDate &&
+                      item.status === "Yo‘q"
+                  )
+                ).length}
+              </strong>
+            </div>
+          </div>
 
-        {parents.length ? (
-          <Table headers={["F.I.O.", "Login", "Holati"]}>
-            {parents.map((item) => (
-              <tr key={item.id}>
-                <td>{item.name}</td>
-                <td>{item.username}</td>
-                <td>Tasdiqlangan</td>
-              </tr>
-            ))}
-          </Table>
-        ) : (
-          <Empty>Ota-onalar ro‘yxati bo‘sh.</Empty>
-        )}
-      </div>
-    );
-  }
+          <div className="attendance-list">
+            {data.students.map((student, index) => {
+              const record = data.attendance.find(
+                (item) =>
+                  item.studentId === student.id &&
+                  item.date === attendanceDate
+              );
+
+              return (
+                <div className="attendance-row" key={student.id}>
+                  <div className="attendance-student">
+                    <span className="attendance-number">
+                      {index + 1}
+                    </span>
+                    <div>
+                      <strong>{student.name}</strong>
+                      <span>{student.grade || "Sinf yo‘q"}</span>
+                    </div>
+                  </div>
+
+                  <div className="attendance-actions">
+                    <button
+                      type="button"
+                      className={`attendance-btn bor ${
+                        record?.status === "Bor" ? "active" : ""
+                      }`}
+                      onClick={() =>
+                        saveAttendance(student.id, "Bor")
+                      }
+                    >
+                      ✓ BOR
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`attendance-btn yoq ${
+                        record?.status === "Yo‘q" ? "active" : ""
+                      }`}
+                      onClick={() =>
+                        saveAttendance(student.id, "Yo‘q")
+                      }
+                    >
+                      ✕ YO‘Q
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <Empty>Davomat uchun avval o‘quvchi qo‘shing.</Empty>
+      )}
+    </div>
+  );
+}
+
+
+ 
+function renderParents() {
+  return (
+    <div className="panel">
+      <h2>Ota-onalar ro‘yxati</h2>
+
+      {parents.length ? (
+        <Table headers={["F.I.O.", "Login", "Holati", "Amallar"]}>
+          {parents.map((item) => (
+            <tr key={item.id}>
+              <td>{item.name}</td>
+              <td>{item.username}</td>
+              <td>
+                {item.status === "disabled" ? (
+                  <span className="user-disabled">To‘xtatilgan</span>
+                ) : (
+                  <span className="user-active">Faol</span>
+                )}
+              </td>
+              <td>
+                <div className="user-actions">
+                  <button
+                    className="user-toggle-button"
+                    onClick={() => toggleUserStatus(item)}
+                  >
+                    {item.status === "disabled"
+                      ? "Faollashtirish"
+                      : "To‘xtatish"}
+                  </button>
+
+                  <button
+                    className="delete-button"
+                    onClick={() => deleteUser(item)}
+                  >
+                    O‘chirish
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      ) : (
+        <Empty>Ota-onalar ro‘yxati bo‘sh.</Empty>
+      )}
+    </div>
+  );
+}
+
 
   function renderStaff() {
-    return (
-      <div className="panel">
-        <h2>Xodimlar ro‘yxati</h2>
+  return (
+    <div className="panel">
+      <h2>Xodimlar ro‘yxati</h2>
 
-        {workers.length ? (
-          <Table headers={["F.I.O.", "Login", "Holati"]}>
-            {workers.map((item) => (
-              <tr key={item.id}>
-                <td>{item.name}</td>
-                <td>{item.username}</td>
-                <td>Tasdiqlangan</td>
-              </tr>
-            ))}
-          </Table>
-        ) : (
-          <Empty>Xodimlar ro‘yxati bo‘sh.</Empty>
-        )}
-      </div>
-    );
-  }
+      {workers.length ? (
+        <Table headers={["F.I.O.", "Login", "Holati", "Amallar"]}>
+          {workers.map((item) => (
+            <tr key={item.id}>
+              <td>{item.name}</td>
+              <td>{item.username}</td>
+              <td>
+                {item.status === "disabled" ? "To‘xtatilgan" : "Faol"}
+              </td>
+              <td>
+                <button
+                  className="user-toggle-button"
+                  onClick={() => toggleUserStatus(item)}
+                >
+                  {item.status === "disabled" ? "Faollashtirish" : "To‘xtatish"}
+                </button>
+
+                <button
+                  className="delete-button"
+                  onClick={() => deleteUser(item)}
+                >
+                  O‘chirish
+                </button>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      ) : (
+        <Empty>Xodimlar ro‘yxati bo‘sh.</Empty>
+      )}
+    </div>
+  );
+}
 
   function renderClubs() {
     return (
@@ -1874,16 +2010,19 @@ function renderRooms() {
                         {item.name} — {item.role} ({item.username})
                       </span>
 
-                      <button onClick={() => approveUser(item.id)}>
-                        Tasdiqlash
-                      </button>
-
                       <button
-                        className="delete-button"
-                        onClick={() => rejectUser(item.id)}
-                      >
-                        Rad etish
-                      </button>
+  className="approve-button"
+  onClick={() => approveUser(item.id)}
+>
+  ✓ Tasdiqlash
+</button>
+
+<button
+  className="reject-button"
+  onClick={() => rejectUser(item.id)}
+>
+  ✕ Rad etish
+</button>
                     </div>
                   ))
               ) : (
