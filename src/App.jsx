@@ -204,7 +204,7 @@ useEffect(() => {
     name: "",
     parent: "",
     birth: "",
-    gender: "O‘g‘il",
+    gender: "Erkak",
     grade: "",
     room: "",
   });
@@ -446,7 +446,7 @@ useEffect(() => {
       name: "",
       parent: "",
       birth: "",
-      gender: "O‘g‘il",
+      gender: "Erkak",
       grade: "",
       room: "",
     });
@@ -476,54 +476,83 @@ useEffect(() => {
 
     const reader = new FileReader();
 
-    reader.onload = (e) => {
-      try {
-        const workbook = XLSX.read(e.target.result, { type: "array" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+reader.onload = (e) => {
+  try {
+    const workbook = XLSX.read(e.target.result, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-        if (!rows.length) {
-          notify("Excel faylida ma’lumot topilmadi.");
-          return;
-        }
+    if (!rows.length) {
+      notify("Excel faylida ma’lumot topilmadi.");
+      return;
+    }
 
-        const imported = rows
-          .map((row) => {
-            const getValue = (...keys) => {
-              const key = Object.keys(row).find((item) =>
-                keys.includes(
-                  item.toLowerCase().replace(/\s/g, "")
-                )
-              );
+    const imported = rows
+      .map((row) => {
+        const getValue = (...keys) => {
+          const key = Object.keys(row).find((item) =>
+            keys.includes(item.toLowerCase().replace(/\s/g, ""))
+          );
 
-              return key ? String(row[key]).trim() : "";
-            };
+          return key ? String(row[key]).trim() : "";
+        };
 
-            return {
-              id: Date.now() + Math.random(),
-              name: getValue("f.i.o", "fio", "ism", "ismfamiliya"),
-              parent: getValue("ota-ona", "otaona", "otaonasi"),
-              birth: getValue("tugilgansana", "tug‘ilgansana", "birth"),
-              gender: getValue("jins") || "Ko‘rsatilmagan",
-              grade: getValue("sinf", "grade"),
-              room: getValue("xona", "room"),
-            };
-          })
-          .filter((student) => student.name);
+        return {
+          id: Date.now() + Math.random(),
+          name: getValue("f.i.o", "fio", "ism", "ismfamiliya")
+            .replace(/\s+/g, " "),
+          parent: getValue("ota-ona", "otaona", "otaonasi"),
+          birth: getValue("tugilgansana", "tug‘ilgansana", "birth"),
+          gender: getValue("jins") || "Ko‘rsatilmagan",
+          grade: getValue("sinf", "grade"),
+          room: getValue("xona", "room"),
+        };
+      })
+      .filter((student) => student.name);
 
-        if (!imported.length) {
-          notify("F.I.O. ustuni topilmadi yoki bo‘sh.");
-          return;
-        }
+    if (!imported.length) {
+      notify("F.I.O. ustuni topilmadi yoki bo‘sh.");
+      return;
+    }
 
-        update("students", [...data.students, ...imported]);
-        notify(`${imported.length} ta o‘quvchi Excel orqali qo‘shildi!`);
-      } catch {
-        notify("Excel faylini o‘qishda xatolik yuz berdi.");
+    const normalizeName = (name) =>
+      name.trim().replace(/\s+/g, " ").toLocaleLowerCase("uz-UZ");
+
+    const existingNames = new Set(
+      data.students.map((student) => normalizeName(student.name || ""))
+    );
+
+    const uniqueStudents = [];
+    const seenNames = new Set(existingNames);
+
+    imported.forEach((student) => {
+      const name = normalizeName(student.name);
+
+      if (!seenNames.has(name)) {
+        uniqueStudents.push(student);
+        seenNames.add(name);
       }
+    });
 
-      event.target.value = "";
-    };
+    const skipped = imported.length - uniqueStudents.length;
+
+    if (!uniqueStudents.length) {
+      notify("Barcha o‘quvchilar avval qo‘shilgan. Takroriy F.I.O.lar o‘tkazib yuborildi.");
+      return;
+    }
+
+    update("students", [...data.students, ...uniqueStudents]);
+
+    notify(
+      `${uniqueStudents.length} ta o‘quvchi qo‘shildi. ${skipped} ta takroriy F.I.O. o‘tkazib yuborildi.`
+    );
+  } catch (error) {
+    console.error(error);
+    notify("Excel faylini o‘qishda xatolik yuz berdi.");
+  }
+
+  event.target.value = "";
+};
 
     reader.readAsArrayBuffer(file);
   }
@@ -795,7 +824,7 @@ async function deleteUser(user) {
   function downloadTemplate() {
     const worksheet = XLSX.utils.aoa_to_sheet([
       ["F.I.O", "Ota-ona", "Tugilgan sana", "Jins", "Sinf", "Xona"],
-      ["Ali Valiyev", "Vali Valiyev", "2012-05-10", "O‘g‘il", "7-A", "101"],
+      ["Ali Valiyev", "Vali Valiyev", "2012-05-10", "Erkak", "7-A", "101"],
     ]);
 
     const workbook = XLSX.utils.book_new();
@@ -1028,159 +1057,168 @@ async function deleteUser(user) {
     );
   }
 
-  function renderStudents() {
-    return (
-      <>
-        <div className="panel">
-          <h2>Yangi o‘quvchi qo‘shish</h2>
 
-          <form className="record-form" onSubmit={addStudent}>
-            <div className="form-grid">
-              <Field label="O‘quvchi F.I.O.">
-                <input
-                  required
-                  value={studentForm.name}
-                  onChange={(e) =>
-                    setStudentForm({ ...studentForm, name: e.target.value })
-                  }
-                  placeholder="Ism Familiya"
-                />
-              </Field>
+function renderStudents() {
+  return (
+    <>
+      <div className="panel">
+        <h2>Yangi o‘quvchi qo‘shish</h2>
 
-              <Field label="Ota-onasi (ixtiyoriy)">
-                <input
-                  value={studentForm.parent}
-                  onChange={(e) =>
-                    setStudentForm({ ...studentForm, parent: e.target.value })
-                  }
-                  placeholder="Ota-ona F.I.O."
-                />
-              </Field>
-
-              <Field label="Tug‘ilgan sana">
-                <input
-                  type="date"
-                  value={studentForm.birth}
-                  onChange={(e) =>
-                    setStudentForm({ ...studentForm, birth: e.target.value })
-                  }
-                />
-              </Field>
-
-              <Field label="Jinsi">
-                <select
-                  value={studentForm.gender}
-                  onChange={(e) =>
-                    setStudentForm({ ...studentForm, gender: e.target.value })
-                  }
-                >
-                  <option>O‘g‘il</option>
-                  <option>Qiz</option>
-                </select>
-              </Field>
-
-              <Field label="Sinfi">
-                <input
-                  value={studentForm.grade}
-                  onChange={(e) =>
-                    setStudentForm({ ...studentForm, grade: e.target.value })
-                  }
-                  placeholder="Masalan: 7-A"
-                />
-              </Field>
-
-              <Field label="Xonasi">
-                <select
-                  value={studentForm.room}
-                  onChange={(e) =>
-                    setStudentForm({ ...studentForm, room: e.target.value })
-                  }
-                >
-                  <option value="">Xona tanlanmagan</option>
-                  {data.rooms.map((room) => (
-                    <option key={room.id} value={room.name}>
-                      {room.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-
-            <button className="primary-button" type="submit">
-              + O‘quvchini saqlash
-            </button>
-          </form>
-        </div>
-
-        <div className="panel">
-          <div className="toolbar">
-            <h3>O‘quvchilar ro‘yxati ({data.students.length})</h3>
-
-            <input
-              placeholder="O‘quvchini qidirish..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-
-            <label className="upload-button">
-              Excel yuklash
+        <form className="record-form" onSubmit={addStudent}>
+          <div className="form-grid">
+            <Field label="O‘quvchi F.I.O.">
               <input
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={importExcel}
-                hidden
+                required
+                value={studentForm.name}
+                onChange={(e) =>
+                  setStudentForm({ ...studentForm, name: e.target.value })
+                }
+                placeholder="Ism Familiya"
               />
-            </label>
+            </Field>
 
-            <button className="secondary-button" onClick={downloadTemplate}>
-              Excel namuna
-            </button>
+            <Field label="Ota-onasi (ixtiyoriy)">
+              <input
+                value={studentForm.parent}
+                onChange={(e) =>
+                  setStudentForm({ ...studentForm, parent: e.target.value })
+                }
+                placeholder="Ota-ona F.I.O."
+              />
+            </Field>
 
-            <button className="secondary-button" onClick={exportExcel}>
-              Excel eksport
-            </button>
+            <Field label="Tug‘ilgan sana">
+              <input
+                type="date"
+                value={studentForm.birth}
+                onChange={(e) =>
+                  setStudentForm({ ...studentForm, birth: e.target.value })
+                }
+              />
+            </Field>
+
+            <Field label="Jinsi">
+              <select
+                required
+                value={studentForm.gender}
+                onChange={(e) =>
+                  setStudentForm({
+                    ...studentForm,
+                    gender: e.target.value,
+                  })
+                }
+              >
+                <option value="Erkak">Erkak</option>
+                <option value="Ayol">Ayol</option>
+              </select>
+            </Field>
+
+            <Field label="Sinfi">
+              <input
+                value={studentForm.grade}
+                onChange={(e) =>
+                  setStudentForm({ ...studentForm, grade: e.target.value })
+                }
+                placeholder="Masalan: 7-A"
+              />
+            </Field>
+
+            <Field label="Xonasi">
+              <select
+                value={studentForm.room}
+                onChange={(e) =>
+                  setStudentForm({ ...studentForm, room: e.target.value })
+                }
+              >
+                <option value="">Xona tanlanmagan</option>
+                {data.rooms.map((room) => (
+                  <option key={room.id} value={room.name}>
+                    {room.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
 
-          {filteredStudents.length ? (
-            <Table
-              headers={[
-                "№",
-                "F.I.O.",
-                "Ota-ona",
-                "Tug‘ilgan sana",
-                "Jins",
-                "Sinf",
-                "Xona",
-                "Amal",
-              ]}
-            >
-              {filteredStudents.map((student, index) => (
-                <tr key={student.id}>
-                  <td>{index + 1}</td>
-                  <td>{student.name}</td>
-                  <td>{student.parent || "—"}</td>
-                  <td>{student.birth || "—"}</td>
-                  <td>{student.gender}</td>
-                  <td>{student.grade || "—"}</td>
-                  <td>{student.room || "—"}</td>
-                  <td>
-                    <button
-                      className="delete-button"
-                      onClick={() => deleteStudent(student.id)}
-                    >
-                      O‘chirish
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </Table>
-          ) : (
-            <Empty>O‘quvchilar topilmadi.</Empty>
-          )}
+          <button className="primary-button" type="submit">
+            + O‘quvchini saqlash
+          </button>
+        </form>
+      </div>
+
+      <div className="panel">
+        <div className="toolbar">
+          <h3>O‘quvchilar ro‘yxati ({data.students.length})</h3>
+
+          <input
+            placeholder="O‘quvchini qidirish..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+
+          <label className="upload-button">
+            Excel yuklash
+            <input
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={importExcel}
+              hidden
+            />
+          </label>
+
+          <button className="secondary-button" onClick={downloadTemplate}>
+            Excel namuna
+          </button>
+
+          <button className="secondary-button" onClick={exportExcel}>
+            Excel eksport
+          </button>
         </div>
-      </>
-    );
-  }
+
+        {filteredStudents.length ? (
+          <Table
+            headers={[
+              "№",
+              "F.I.O.",
+              "Ota-ona",
+              "Tug‘ilgan sana",
+              "Jins",
+              "Sinf",
+              "Xona",
+              "Amal",
+            ]}
+          >
+            {filteredStudents.map((student, index) => (
+              <tr key={student.id}>
+                <td>{index + 1}</td>
+                <td>{student.name}</td>
+                <td>{student.parent || "—"}</td>
+                <td>{student.birth || "—"}</td>
+                <td>
+                  {student.gender === "Erkak" || student.gender === "Ayol"
+                    ? student.gender
+                    : "Noto‘g‘ri jins"}
+                </td>
+                <td>{student.grade || "—"}</td>
+                <td>{student.room || "—"}</td>
+                <td>
+                  <button
+                    className="delete-button"
+                    onClick={() => deleteStudent(student.id)}
+                  >
+                    O‘chirish
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        ) : (
+          <Empty>O‘quvchilar topilmadi.</Empty>
+        )}
+      </div>
+    </>
+  );
+}
 
   
 function renderRooms() {
